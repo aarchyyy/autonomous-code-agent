@@ -1,0 +1,8 @@
+# Autonomous Code Synthesis & Verification Agent (ACS-Agent)
+# The core framework & deterministic mock engine run with ZERO external dependencies (Python 3.9+ standard library only).
+
+# Optional packages for extended development & live cloud model calls:
+pytest>=7.0.0
+rich>=13.0.0
+requests>=2.28.0
+openai>=1.0.0

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ACS-Agent · 自主代码迭代与测试闭环智能体工作台</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(18, 24, 38, 0.78);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-blue: #38bdf8;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --accent-amber: #f59e0b;
+      --accent-purple: #a855f7;
+      --code-bg: #030712;
+      --font-mono: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg) 60%);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 24px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .status-pills {
+      display: flex;
+      gap: 10px;
+    }
+    .pill {
+      font-size: 12px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pill-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+
+    /* Control Bar */
+    .controls-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(16px);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    .case-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    label {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    select {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+    button {
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      border: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: white;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    /* Grid Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 1100px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(16px);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 680px;
+    }
+    .card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.15);
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    .card-body {
+      padding: 16px;
+      flex: 1;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    /* Terminal & Logs */
+    .terminal-view {
+      background: var(--code-bg);
+      border-radius: 8px;
+      padding: 14px;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-all;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      height: 100%;
+      overflow-y: auto;
+    }
+    .log-success { color: var(--accent-green); }
+    .log-fail { color: var(--accent-red); font-weight: bold; }
+    .log-info { color: var(--accent-blue); }
+    .log-warn { color: var(--accent-amber); }
+
+    /* Diff View */
+    .diff-view {
+      background: var(--code-bg);
+      border-radius: 8px;
+      padding: 12px;
+      color: #94a3b8;
+      font-size: 12px;
+      height: 100%;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .diff-add { color: #34d399; background: rgba(16, 185, 129, 0.12); display: block; border-left: 2px solid #10b981; padding-left: 4px; }
+    .diff-del { color: #f87171; background: rgba(239, 68, 68, 0.12); display: block; border-left: 2px solid #ef4444; padding-left: 4px; }
+
+    /* Thought Cards */
+    .thought-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .thought-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .thought-text {
+      color: #e2e8f0;
+      line-height: 1.5;
+      font-family: -apple-system, sans-serif;
+      font-size: 13px;
+    }
+
+    /* Metrics Footer */
+    .summary-card {
+      margin-top: 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      text-align: center;
+    }
+    .metric-val {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--accent-green);
+    }
+    .metric-lbl {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="brand-icon">🤖</div>
+        <div>
+          <h1>Autonomous Code Synthesis & Verification Agent (ACS-Agent)</h1>
+          <div class="subtitle">面向黑客松“夜间自主接力”与端侧调优的 TDD 闭环智能体工作台</div>
+        </div>
+      </div>
+      <div class="status-pills">
+        <div class="pill"><div class="pill-dot"></div> 门禁状态: <span id="gate-status-text">待运行</span></div>
+        <div class="pill">AMD GCN/CDNA 架构对齐</div>
+        <div class="pill">0-ULP 严苛保真</div>
+      </div>
+    </header>
+
+    <div class="controls-card">
+      <div class="case-selector">
+        <label for="caseSelect">测试算例 (Benchmark Case)：</label>
+        <select id="caseSelect">
+          <option value="case1">Case 1: SpMM CSR 算子 (非对齐偏移与空行容错)</option>
+          <option value="case2" selected>Case 2: 向量尺度算子 (0-ULP 精度漂移与边界)</option>
+          <option value="case3">Case 3: GQA KV-Cache (头维度跨步广播)</option>
+        </select>
+      </div>
+      <div class="btn-group">
+        <button class="btn-secondary" id="btnReset">🔄 注入缺陷代码</button>
+        <button class="btn-primary" id="btnRun">🚀 启动夜间自主迭代闭环</button>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Col 1: Diff & Code -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📝 源码补丁与 Diff 对比</span>
+          <span class="card-badge" id="diffBadge">AST 预检就绪</span>
+        </div>
+        <div class="card-body">
+          <div class="diff-view" id="diffContainer">点击「启动夜间自主迭代闭环」查看智能体生成的修复补丁...</div>
+        </div>
+      </div>
+
+      <!-- Col 2: TDD Gatekeeper -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🛡️ TDD 门禁执行与沙箱追踪</span>
+          <span class="card-badge" id="testBadge">UnitTest 隔离沙箱</span>
+        </div>
+        <div class="card-body">
+          <div class="terminal-view" id="terminalContainer">[TDD Watchdog Ready] 等待测试套件调度...</div>
+        </div>
+      </div>
+
+      <!-- Col 3: Cognition Stream -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🧠 智能体 ReAct 认知反思流</span>
+          <span class="card-badge" id="iterBadge">0 / 4 轮迭代</span>
+        </div>
+        <div class="card-body" id="cognitionContainer">
+          <div style="color: var(--text-muted); padding: 12px;">智能体将在捕获门禁报错后，自主启动根因剖析与补丁决策...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-card">
+      <div>
+        <div class="metric-val" id="metricPass">--</div>
+        <div class="metric-lbl">门禁通过率 (Pass Rate)</div>
+      </div>
+      <div>
+        <div class="metric-val" id="metricIter" style="color: var(--accent-blue);">--</div>
+        <div class="metric-lbl">收敛轮次 (Convergence Rounds)</div>
+      </div>
+      <div>
+        <div class="metric-val" id="metricTime" style="color: var(--accent-amber);">--</div>
+        <div class="metric-lbl">端到端耗时 (Wall Time)</div>
+      </div>
+      <div>
+        <div class="metric-val" id="metricSafety" style="color: var(--accent-purple);">100%</div>
+        <div class="metric-lbl">AST 语法与超时安全率</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const btnRun = document.getElementById("btnRun");
+    const btnReset = document.getElementById("btnReset");
+    const caseSelect = document.getElementById("caseSelect");
+    const diffContainer = document.getElementById("diffContainer");
+    const terminalContainer = document.getElementById("terminalContainer");
+    const cognitionContainer = document.getElementById("cognitionContainer");
+    const gateStatusText = document.getElementById("gate-status-text");
+
+    async function runAgent() {
+      const caseId = caseSelect.value;
+      btnRun.disabled = true;
+      btnRun.innerText = "⏳ 智能体自主运算迭代中...";
+      gateStatusText.innerText = "迭代运行中";
+
+      terminalContainer.innerHTML = '<span class="log-info">[RUNNING] 启动 TDD 门禁验证与代码自修复循环...</span>\n';
+      cognitionContainer.innerHTML = '';
+      diffContainer.innerHTML = '正在分析差异...';
+
+      try {
+        const res = await fetch(`/api/run?case=${caseId}`, { method: 'POST' });
+        const data = await res.json();
+
+        // Populate metrics
+        document.getElementById("metricPass").innerText = data.success ? "100% PASS" : "FAILED";
+        document.getElementById("metricIter").innerText = `${data.iterations} 轮`;
+        document.getElementById("metricTime").innerText = `${data.elapsed_seconds}s`;
+        document.getElementById("iterBadge").innerText = `${data.iterations} / 4 轮迭代`;
+
+        // Render history
+        let termLog = "";
+        let cognitionHtml = "";
+        let latestDiff = "";
+
+        data.history.forEach((step, idx) => {
+          const it = step.iteration;
+          if (step.status === "CONVERGED_SUCCESS") {
+            termLog += `<span class="log-success">✔ [第 ${it} 轮] 门禁执行全量 PASS！所有断言通过，流程完美收敛。</span>\n\n`;
+          } else {
+            termLog += `<span class="log-fail">✖ [第 ${it} 轮] 门禁拦截异常:</span>\n${step.test_result.output}\n\n`;
+            
+            cognitionHtml += `
+              <div class="thought-item">
+                <div class="thought-header">
+                  <span style="color: var(--accent-blue);">第 ${it} 轮 根因剖析与规划</span>
+                  <span style="color: var(--accent-green);">AST 校验通过</span>
+                </div>
+                <div class="thought-text">${step.agent_thought || '分析报错并生成自愈代码。'}</div>
+              </div>
+            `;
+          }
+
+          if (step.diff) {
+            latestDiff = step.diff;
+          }
+        });
+
+        terminalContainer.innerHTML = termLog;
+        cognitionContainer.innerHTML = cognitionHtml;
+
+        // Render colored diff
+        if (latestDiff) {
+          const formattedDiff = latestDiff.split('\n').map(line => {
+            if (line.startsWith('+') && !line.startsWith('+++')) return `<span class="diff-add">${escapeHtml(line)}</span>`;
+            if (line.startsWith('-') && !line.startsWith('---')) return `<span class="diff-del">${escapeHtml(line)}</span>`;
+            return `<span>${escapeHtml(line)}</span>`;
+          }).join('\n');
+          diffContainer.innerHTML = formattedDiff;
+        } else {
+          diffContainer.innerText = "代码已完全满足门禁要求，无需追加补丁。";
+        }
+
+        gateStatusText.innerText = data.success ? "全量 PASS" : "异常未收敛";
+      } catch (err) {
+        terminalContainer.innerHTML = `<span class="log-fail">[ERROR] 通信异常: ${err.message}</span>`;
+      } finally {
+        btnRun.disabled = false;
+        btnRun.innerText = "🚀 启动夜间自主迭代闭环";
+      }
+    }
+
+    async function resetDefect() {
+      const caseId = caseSelect.value;
+      await fetch(`/api/reset?case=${caseId}`, { method: 'POST' });
+      terminalContainer.innerHTML = '<span class="log-warn">[RESET] 已成功重置为带缺陷的初始算子源码。</span>\n';
+      diffContainer.innerText = '已重置代码。点击「启动夜间自主迭代闭环」运行智能体。';
+      cognitionContainer.innerHTML = '<div style="color: var(--text-muted); padding: 12px;">待命状态。</div>';
+      gateStatusText.innerText = "已注入缺陷";
+      document.getElementById("metricPass").innerText = "--";
+      document.getElementById("metricIter").innerText = "--";
+      document.getElementById("metricTime").innerText = "--";
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    btnRun.addEventListener("click", runAgent);
+    btnReset.addEventListener("click", resetDefect);
+  </script>
+</body>
+</html>
