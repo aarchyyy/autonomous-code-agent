@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ACS-Agent · 自主代码迭代与测试闭环智能体工作台</title>
+  <title>ACS-Agent · 24h 碳硅接力自主代码工程工作台</title>
   <style>
     :root {
-      --bg: #090d16;
-      --card-bg: rgba(18, 24, 38, 0.78);
-      --card-border: rgba(255, 255, 255, 0.08);
+      --bg: #070b14;
+      --card-bg: rgba(15, 23, 42, 0.85);
+      --card-border: rgba(148, 163, 184, 0.14);
       --text-main: #f1f5f9;
       --text-muted: #94a3b8;
       --accent-blue: #38bdf8;
@@ -22,460 +22,770 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg) 60%);
+      background: radial-gradient(circle at 20% 0%, #172554 0%, var(--bg) 55%);
       color: var(--text-main);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
       min-height: 100vh;
-      padding: 24px;
+      padding: 20px;
     }
 
-    .container {
-      max-width: 1440px;
-      margin: 0 auto;
-    }
+    .container { max-width: 1480px; margin: 0 auto; }
 
-    /* Header */
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-bottom: 16px;
       border-bottom: 1px solid var(--card-border);
-      margin-bottom: 24px;
+      margin-bottom: 18px;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
+    .brand { display: flex; align-items: center; gap: 14px; }
     .brand-icon {
-      width: 44px;
-      height: 44px;
-      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #0284c7, #6366f1);
       border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 800; color: #fff;
+      box-shadow: 0 4px 16px rgba(56, 189, 248, 0.25);
     }
-    h1 {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
-    }
-    .subtitle {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-    .status-pills {
-      display: flex;
-      gap: 10px;
-    }
+    h1 { font-size: 19px; font-weight: 700; }
+    .subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    .status-pills { display: flex; flex-wrap: wrap; gap: 8px; }
     .pill {
-      font-size: 12px;
-      padding: 5px 12px;
-      border-radius: 20px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--card-border);
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      font-size: 12px; padding: 5px 11px; border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--card-border);
+      display: inline-flex; align-items: center; gap: 6px;
     }
-    .pill-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--accent-green);
-      box-shadow: 0 0 8px var(--accent-green);
+    .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-amber); }
+    .pill-dot.live { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+    .pill-dot.err { background: var(--accent-red); }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .tab-btn {
+      background: rgba(255, 255, 255, 0.05); color: var(--text-muted);
+      border: 1px solid var(--card-border); padding: 9px 18px; border-radius: 10px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .tab-btn.active {
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(99, 102, 241, 0.25));
+      color: #fff; border-color: rgba(56, 189, 248, 0.5);
     }
 
-    /* Control Bar */
-    .controls-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      backdrop-filter: blur(16px);
-      border-radius: 16px;
-      padding: 16px 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 24px;
+    /* Config / Controls */
+    .panel {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 14px; padding: 14px 18px; margin-bottom: 16px;
     }
-    .case-selector {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+    .panel-title {
+      font-size: 12px; font-weight: 700; color: var(--accent-blue);
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center;
     }
-    label {
-      font-size: 13px;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-    select {
-      background: #0f172a;
-      border: 1px solid var(--card-border);
-      color: var(--text-main);
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-size: 13px;
-      outline: none;
-      cursor: pointer;
-    }
-    .btn-group {
-      display: flex;
-      gap: 12px;
-    }
-    button {
-      padding: 9px 18px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.2s ease;
-      border: none;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #0284c7, #2563eb);
-      color: white;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
-    }
-    .btn-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
-    }
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--text-main);
-      border: 1px solid var(--card-border);
-    }
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.12);
-    }
-
-    /* Grid Layout */
-    .dashboard-grid {
+    .form-grid {
       display: grid;
-      grid-template-columns: 1.1fr 1fr 1fr;
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 10px;
+      align-items: end;
     }
-    @media (max-width: 1100px) {
-      .dashboard-grid {
-        grid-template-columns: 1fr;
-      }
+    .field label {
+      display: block; font-size: 11px; color: var(--text-muted);
+      font-weight: 600; margin-bottom: 4px;
+    }
+    input, select, textarea {
+      width: 100%; background: #0b1220; border: 1px solid var(--card-border);
+      color: var(--text-main); padding: 7px 10px; border-radius: 8px;
+      font-size: 12px; outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent-blue); }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-top: 12px; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button {
+      padding: 8px 15px; border-radius: 8px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 6px;
+      transition: opacity 0.15s, transform 0.15s;
+    }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; }
+    .btn-relay { background: linear-gradient(135deg, #7c3aed, #2563eb); color: #fff; }
+    .btn-secondary { background: rgba(255, 255, 255, 0.08); color: var(--text-main); border: 1px solid var(--card-border); }
+    .probe-msg { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+
+    /* Grids */
+    .dashboard-grid {
+      display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 16px;
+    }
+    .relay-grid {
+      display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px;
+    }
+    @media (max-width: 1120px) {
+      .dashboard-grid, .relay-grid { grid-template-columns: 1fr; }
     }
 
     .card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      backdrop-filter: blur(16px);
-      border-radius: 16px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      height: 680px;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; height: 560px;
     }
     .card-header {
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--card-border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: rgba(0, 0, 0, 0.15);
+      padding: 12px 16px; border-bottom: 1px solid var(--card-border);
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(0, 0, 0, 0.2);
     }
-    .card-title {
-      font-size: 14px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .card-title { font-size: 13px; font-weight: 700; }
     .card-badge {
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 12px;
-      font-weight: 600;
-      background: rgba(56, 189, 248, 0.12);
-      color: var(--accent-blue);
+      font-size: 11px; padding: 3px 8px; border-radius: 12px; font-weight: 600;
+      background: rgba(56, 189, 248, 0.12); color: var(--accent-blue);
       border: 1px solid rgba(56, 189, 248, 0.25);
     }
     .card-body {
-      padding: 16px;
-      flex: 1;
-      overflow-y: auto;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 1.5;
+      padding: 14px; flex: 1; overflow-y: auto;
+      font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
     }
 
-    /* Terminal & Logs */
-    .terminal-view {
-      background: var(--code-bg);
-      border-radius: 8px;
-      padding: 14px;
-      color: #cbd5e1;
-      white-space: pre-wrap;
-      word-break: break-all;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      height: 100%;
-      overflow-y: auto;
+    .terminal-view, .diff-view, .report-view {
+      background: var(--code-bg); border-radius: 8px; padding: 12px;
+      color: #cbd5e1; white-space: pre-wrap; word-break: break-word;
+      border: 1px solid rgba(255, 255, 255, 0.06); min-height: 100%;
     }
     .log-success { color: var(--accent-green); }
-    .log-fail { color: var(--accent-red); font-weight: bold; }
+    .log-fail { color: var(--accent-red); font-weight: 600; }
     .log-info { color: var(--accent-blue); }
     .log-warn { color: var(--accent-amber); }
 
-    /* Diff View */
-    .diff-view {
-      background: var(--code-bg);
-      border-radius: 8px;
-      padding: 12px;
-      color: #94a3b8;
-      font-size: 12px;
-      height: 100%;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
     .diff-add { color: #34d399; background: rgba(16, 185, 129, 0.12); display: block; border-left: 2px solid #10b981; padding-left: 4px; }
     .diff-del { color: #f87171; background: rgba(239, 68, 68, 0.12); display: block; border-left: 2px solid #ef4444; padding-left: 4px; }
 
-    /* Thought Cards */
     .thought-item {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--card-border);
-      border-radius: 10px;
-      padding: 14px;
-      margin-bottom: 12px;
+      background: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 12px; margin-bottom: 10px;
     }
     .thought-header {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      font-size: 12px;
-      font-weight: bold;
+      display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px;
+      font-size: 12px; font-weight: 700;
     }
     .thought-text {
-      color: #e2e8f0;
-      line-height: 1.5;
-      font-family: -apple-system, sans-serif;
-      font-size: 13px;
+      color: #e2e8f0; font-family: -apple-system, sans-serif; font-size: 13px; line-height: 1.5;
+    }
+    .tool-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .tool-chip {
+      font-size: 11px; padding: 2px 7px; border-radius: 6px;
+      background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35);
+      color: #e9d5ff;
     }
 
-    /* Metrics Footer */
+    .relay-task-row {
+      background: rgba(255, 255, 255, 0.03); border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+    }
+    .relay-task-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .badge-ok { color: var(--accent-green); }
+    .badge-fail { color: var(--accent-red); }
+    .badge-run { color: var(--accent-amber); }
+
     .summary-card {
-      margin-top: 24px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 16px;
-      padding: 18px 24px;
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      text-align: center;
+      margin-top: 16px; background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 14px; padding: 14px 20px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px; text-align: center;
     }
-    .metric-val {
-      font-size: 24px;
-      font-weight: 800;
-      color: var(--accent-green);
-    }
-    .metric-lbl {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
+    .metric-val { font-size: 20px; font-weight: 800; color: var(--accent-green); }
+    .metric-lbl { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
       <div class="brand">
-        <div class="brand-icon">🤖</div>
+        <div class="brand-icon">ACS</div>
         <div>
-          <h1>Autonomous Code Synthesis & Verification Agent (ACS-Agent)</h1>
-          <div class="subtitle">面向黑客松“夜间自主接力”与端侧调优的 TDD 闭环智能体工作台</div>
+          <h1>Autonomous Code Synthesis &amp; Verification Agent (ACS-Agent)</h1>
+          <div class="subtitle">24h 人机接力 / 碳硅协同自主研发与可信验证工作台（昆仑 GPT-Factory One · AMD Ryzen AI MAX+ 395 适配）</div>
         </div>
       </div>
       <div class="status-pills">
-        <div class="pill"><div class="pill-dot"></div> 门禁状态: <span id="gate-status-text">待运行</span></div>
-        <div class="pill">AMD GCN/CDNA 架构对齐</div>
-        <div class="pill">0-ULP 严苛保真</div>
+        <div class="pill"><div class="pill-dot" id="backendDot"></div> <span id="backendPillText">后端: 自动探测</span></div>
+        <div class="pill">沙箱: Ephemeral R/O + python -I + rlimit</div>
+        <div class="pill">门禁校验: <span id="integrityText">SHA-256 待验证</span></div>
       </div>
     </header>
 
-    <div class="controls-card">
-      <div class="case-selector">
-        <label for="caseSelect">测试算例 (Benchmark Case)：</label>
-        <select id="caseSelect">
-          <option value="case1">Case 1: SpMM CSR 算子 (非对齐偏移与空行容错)</option>
-          <option value="case2" selected>Case 2: 向量尺度算子 (0-ULP 精度漂移与边界)</option>
-          <option value="case3">Case 3: GQA KV-Cache (头维度跨步广播)</option>
-        </select>
+    <!-- Hardware & Backend Configuration -->
+    <div class="panel">
+      <div class="panel-title">
+        <span>算力后端与模型端点配置 (LLM Backend &amp; Local Token Factory)</span>
+        <span class="probe-msg" id="probeStatus">未探测端点</span>
       </div>
-      <div class="btn-group">
-        <button class="btn-secondary" id="btnReset">🔄 注入缺陷代码</button>
-        <button class="btn-primary" id="btnRun">🚀 启动夜间自主迭代闭环</button>
-      </div>
-    </div>
-
-    <div class="dashboard-grid">
-      <!-- Col 1: Diff & Code -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📝 源码补丁与 Diff 对比</span>
-          <span class="card-badge" id="diffBadge">AST 预检就绪</span>
+      <div class="form-grid">
+        <div class="field">
+          <label for="backendMode">运行模式</label>
+          <select id="backendMode">
+            <option value="auto" selected>Auto (有端点/密钥则 Live，否则 Smoke Mock)</option>
+            <option value="live">Live LLM (强制真实模型推理)</option>
+            <option value="mock">Offline Smoke Mock (仅验证工程流水线)</option>
+          </select>
         </div>
-        <div class="card-body">
-          <div class="diff-view" id="diffContainer">点击「启动夜间自主迭代闭环」查看智能体生成的修复补丁...</div>
+        <div class="field">
+          <label for="presetSelect">硬件/服务预设</label>
+          <select id="presetSelect">
+            <option value="">-- 自定义 / 环境变量 --</option>
+            <option value="kunlun-gateway">Kunlun GPT-Factory One / AI Agent Gateway</option>
+            <option value="ollama">Ollama Local (AMD Ryzen AI MAX+ 395)</option>
+            <option value="vllm">vLLM / ROCm Local Server</option>
+            <option value="dashscope">DashScope (Qwen)</option>
+            <option value="deepseek">DeepSeek API</option>
+            <option value="openai">OpenAI API</option>
+          </select>
         </div>
-      </div>
-
-      <!-- Col 2: TDD Gatekeeper -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">🛡️ TDD 门禁执行与沙箱追踪</span>
-          <span class="card-badge" id="testBadge">UnitTest 隔离沙箱</span>
+        <div class="field">
+          <label for="baseUrlInput">OpenAI 兼容 Base URL</label>
+          <input id="baseUrlInput" type="text" placeholder="http://127.0.0.1:8000/v1">
         </div>
-        <div class="card-body">
-          <div class="terminal-view" id="terminalContainer">[TDD Watchdog Ready] 等待测试套件调度...</div>
+        <div class="field">
+          <label for="modelInput">模型名称 (Model)</label>
+          <input id="modelInput" type="text" placeholder="baize-omni-sense / qwen2.5-coder">
         </div>
-      </div>
-
-      <!-- Col 3: Cognition Stream -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">🧠 智能体 ReAct 认知反思流</span>
-          <span class="card-badge" id="iterBadge">0 / 4 轮迭代</span>
+        <div class="field">
+          <label for="apiKeyInput">API Key (本地网关可留空)</label>
+          <input id="apiKeyInput" type="password" placeholder="仅保留在当前请求内存中">
         </div>
-        <div class="card-body" id="cognitionContainer">
-          <div style="color: var(--text-muted); padding: 12px;">智能体将在捕获门禁报错后，自主启动根因剖析与补丁决策...</div>
+        <div class="field">
+          <button class="btn-secondary" id="btnProbe" style="width:100%; justify-content:center;">探测 /v1/models</button>
         </div>
       </div>
     </div>
+
+    <!-- Mode Switch Tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" id="tabSingle">单任务 TDD / ReAct 自修复闭环</button>
+      <button class="tab-btn" id="tabRelay">24h 夜间硅基接力队列 (Night Relay + 晨间交接简报)</button>
+    </div>
+
+    <!-- Single Task Workbench -->
+    <section id="sectionSingle">
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field">
+            <label for="caseSelect">选择基准算例或自定义工作区</label>
+            <select id="caseSelect">
+              <option value="case1">Case 1: SpMM CSR 算子 (负下标防线 + math.fsum)</option>
+              <option value="case2" selected>Case 2: 向量尺度算子 (IEEE-754 float32 0-ULP + 非有限值校验)</option>
+              <option value="case3">Case 3: GQA KV-Cache 广播 (形状校验 + 独立缓冲隔离)</option>
+              <option value="case4">Case 4: 多文件 Token 调度器 (ReAct 多工具 + 隐藏 Holdout 门禁)</option>
+              <option value="custom">自定义本地工程工作区 (Custom Workspace)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="maxIterInput">最大迭代轮次</label>
+            <input id="maxIterInput" type="number" min="1" max="12" value="4">
+          </div>
+          <div class="field">
+            <label for="agentModeSelect">Agent 调度模式</label>
+            <select id="agentModeSelect">
+              <option value="auto" selected>Auto (单文件 Patch / 多文件 ReAct)</option>
+              <option value="react">ReAct Multi-Tool (list/read/search/patch/test)</option>
+              <option value="patch">Patch Loop (Fast Single-File)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="customWorkspaceFields" class="form-grid hidden" style="margin-top:10px;">
+          <div class="field">
+            <label for="customWs">工作区绝对路径</label>
+            <input id="customWs" type="text" placeholder="/path/to/your/project">
+          </div>
+          <div class="field">
+            <label for="customWritable">授权可写文件 (逗号分隔)</label>
+            <input id="customWritable" type="text" placeholder="precision.py, scheduler.py">
+          </div>
+          <div class="field">
+            <label for="customTest">不可变测试文件</label>
+            <input id="customTest" type="text" placeholder="test_scheduler.py">
+          </div>
+          <div class="field">
+            <label for="customHoldout">可选隐藏 Holdout 测试</label>
+            <input id="customHoldout" type="text" placeholder="holdout_test.py">
+          </div>
+          <div class="field" style="grid-column: 1 / -1;">
+            <label for="customSpec">任务需求说明 (Spec)</label>
+            <input id="customSpec" type="text" placeholder="描述需要修复的 Bug 或新增功能约束">
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <div class="btn-group">
+            <button class="btn-secondary" id="btnReset">注入缺陷代码</button>
+            <button class="btn-primary" id="btnRun">启动实时流式迭代闭环 (SSE)</button>
+          </div>
+          <span class="probe-msg" id="singleRunHint">状态: 待运行</span>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">源码 Diff 与 AST 安全审计</span>
+            <span class="card-badge" id="diffBadge">AST Guard 就绪</span>
+          </div>
+          <div class="card-body">
+            <div class="diff-view" id="diffContainer">点击「启动实时流式迭代闭环」观察源码补丁 Diff...</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">隔离沙箱 TDD 门禁 &amp; Holdout</span>
+            <span class="card-badge" id="testBadge">Ephemeral R/O Sandbox</span>
+          </div>
+          <div class="card-body">
+            <div class="terminal-view" id="terminalContainer">[Sandbox Ready] 测试将在只读隔离临时副本与脱敏环境变量中执行...</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">ReAct 认知流 &amp; 工具调用轨迹</span>
+            <span class="card-badge" id="iterBadge">0 轮</span>
+          </div>
+          <div class="card-body" id="cognitionContainer">
+            <div style="color: var(--text-muted); padding: 8px;">等待执行。ReAct 轨迹、回滚告警与防停滞状态将在此实时呈现...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 24h Night Relay Workbench -->
+    <section id="sectionRelay" class="hidden">
+      <div class="panel">
+        <div class="form-grid">
+          <div class="field">
+            <label for="relayPlanPath">接力任务队列计划 (relay_plan.json)</label>
+            <input id="relayPlanPath" type="text" placeholder="留空则使用内置 benchmarks/night_relay_plan.json 隔离演练">
+          </div>
+          <div class="field">
+            <label for="relayWorkspace">目标项目路径 (演练请留空以使用隔离副本)</label>
+            <input id="relayWorkspace" type="text" placeholder="留空：自动复制到临时目录运行，不污染仓库">
+          </div>
+          <div class="field">
+            <label for="relayBudget">夜间时间预算 (秒)</label>
+            <input id="relayBudget" type="number" min="30" max="43200" value="600">
+          </div>
+        </div>
+        <div class="btn-row">
+          <div class="btn-group">
+            <button class="btn-relay" id="btnStartRelay">启动 24h 夜间硅基接力队列</button>
+            <button class="btn-secondary hidden" id="btnDownloadHandover">下载 HANDOVER_REPORT.md</button>
+          </div>
+          <span class="probe-msg" id="relayStatusHint">流程: 19日碳基建门禁 → 夜间硅基接力 + 跨任务回归门禁 → 20日晨间交接简报</span>
+        </div>
+      </div>
+
+      <div class="relay-grid">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">夜间任务队列与跨任务回归监控</span>
+            <span class="card-badge" id="relayProgressBadge">0 / 0 任务</span>
+          </div>
+          <div class="card-body" id="relayTasksContainer">
+            <div style="color: var(--text-muted); padding: 8px;">点击「启动 24h 夜间硅基接力队列」，实时观察多任务串行推进、Holdout 验收、跨任务回归检查与自动回滚。</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">20日 晨间交接简报 (HANDOVER_REPORT.md)</span>
+            <span class="card-badge" id="handoverBadge">等待生成</span>
+          </div>
+          <div class="card-body">
+            <div class="report-view" id="handoverContainer">接力完成后，将自动输出包含真实后端标识、SHA-256 门禁完整性、回滚记录与人工复核清单的晨间交接报告。</div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div class="summary-card">
       <div>
         <div class="metric-val" id="metricPass">--</div>
-        <div class="metric-lbl">门禁通过率 (Pass Rate)</div>
+        <div class="metric-lbl">门禁最终状态</div>
       </div>
       <div>
         <div class="metric-val" id="metricIter" style="color: var(--accent-blue);">--</div>
-        <div class="metric-lbl">收敛轮次 (Convergence Rounds)</div>
+        <div class="metric-lbl">迭代轮次 / 任务完成</div>
       </div>
       <div>
         <div class="metric-val" id="metricTime" style="color: var(--accent-amber);">--</div>
-        <div class="metric-lbl">端到端耗时 (Wall Time)</div>
+        <div class="metric-lbl">端到端耗时</div>
       </div>
       <div>
-        <div class="metric-val" id="metricSafety" style="color: var(--accent-purple);">100%</div>
-        <div class="metric-lbl">AST 语法与超时安全率</div>
+        <div class="metric-val" id="metricTokens" style="color: var(--accent-purple);">--</div>
+        <div class="metric-lbl">LLM 调用 / Tokens</div>
+      </div>
+      <div>
+        <div class="metric-val" id="metricRollback" style="color: #cbd5e1;">0</div>
+        <div class="metric-lbl">回归自动回滚次数</div>
       </div>
     </div>
   </div>
 
   <script>
-    const btnRun = document.getElementById("btnRun");
-    const btnReset = document.getElementById("btnReset");
-    const caseSelect = document.getElementById("caseSelect");
-    const diffContainer = document.getElementById("diffContainer");
-    const terminalContainer = document.getElementById("terminalContainer");
-    const cognitionContainer = document.getElementById("cognitionContainer");
-    const gateStatusText = document.getElementById("gate-status-text");
+    let PRESETS = {};
+    let latestHandoverMarkdown = "";
 
-    async function runAgent() {
-      const caseId = caseSelect.value;
-      btnRun.disabled = true;
-      btnRun.innerText = "⏳ 智能体自主运算迭代中...";
-      gateStatusText.innerText = "迭代运行中";
+    const escapeHtml = (text) => String(text ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
 
-      terminalContainer.innerHTML = '<span class="log-info">[RUNNING] 启动 TDD 门禁验证与代码自修复循环...</span>\n';
-      cognitionContainer.innerHTML = '';
-      diffContainer.innerHTML = '正在分析差异...';
+    async function loadConfig() {
+      try {
+        const res = await fetch("/api/config");
+        const cfg = await res.json();
+        PRESETS = cfg.presets || {};
+        if (cfg.env_live_configured) {
+          document.getElementById("probeStatus").innerText = "检测到环境变量已配置 Live LLM 端点";
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    loadConfig();
+
+    document.getElementById("presetSelect").addEventListener("change", (e) => {
+      const p = PRESETS[e.target.value];
+      if (p) {
+        document.getElementById("baseUrlInput").value = p.base_url;
+        document.getElementById("modelInput").value = p.default_model;
+      }
+    });
+
+    document.getElementById("caseSelect").addEventListener("change", (e) => {
+      const isCustom = e.target.value === "custom";
+      document.getElementById("customWorkspaceFields").classList.toggle("hidden", !isCustom);
+      document.getElementById("btnReset").disabled = isCustom;
+    });
+
+    document.getElementById("tabSingle").addEventListener("click", () => {
+      document.getElementById("tabSingle").classList.add("active");
+      document.getElementById("tabRelay").classList.remove("active");
+      document.getElementById("sectionSingle").classList.remove("hidden");
+      document.getElementById("sectionRelay").classList.add("hidden");
+    });
+
+    document.getElementById("tabRelay").addEventListener("click", () => {
+      document.getElementById("tabRelay").classList.add("active");
+      document.getElementById("tabSingle").classList.remove("active");
+      document.getElementById("sectionRelay").classList.remove("hidden");
+      document.getElementById("sectionSingle").classList.add("hidden");
+    });
+
+    function collectBackendPayload() {
+      return {
+        mode: document.getElementById("backendMode").value,
+        preset: document.getElementById("presetSelect").value,
+        base_url: document.getElementById("baseUrlInput").value.trim(),
+        model: document.getElementById("modelInput").value.trim(),
+        api_key: document.getElementById("apiKeyInput").value.trim(),
+      };
+    }
+
+    function updateBackendIndicator(isMock, label, model) {
+      const dot = document.getElementById("backendDot");
+      const text = document.getElementById("backendPillText");
+      dot.classList.remove("live", "err");
+      if (isMock) {
+        text.innerText = `后端: Offline Smoke Mock (${model || "mock"})`;
+      } else {
+        dot.classList.add("live");
+        text.innerText = `后端: Live LLM (${model || label})`;
+      }
+    }
+
+    document.getElementById("btnProbe").addEventListener("click", async () => {
+      const statusEl = document.getElementById("probeStatus");
+      statusEl.innerText = "正在探测端点...";
+      try {
+        const res = await fetch("/api/probe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectBackendPayload()),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const models = (data.models || []).slice(0, 4).join(", ") || "连接成功 (未返回列表)";
+          statusEl.innerText = `OK (${data.latency_ms}ms) 模型: ${models}`;
+          if (data.models && data.models.length > 0 && !document.getElementById("modelInput").value.trim()) {
+            document.getElementById("modelInput").value = data.models[0];
+          }
+        } else {
+          statusEl.innerText = `探测失败: ${data.error}`;
+        }
+      } catch (err) {
+        statusEl.innerText = `请求异常: ${err.message}`;
+      }
+    });
+
+    document.getElementById("btnReset").addEventListener("click", async () => {
+      const caseId = document.getElementById("caseSelect").value;
+      if (caseId === "custom") return;
+      await fetch(`/api/reset?case=${encodeURIComponent(caseId)}`, { method: "POST" });
+      document.getElementById("terminalContainer").innerHTML =
+        `<span class="log-warn">[RESET] 已将 ${escapeHtml(caseId)} 重置为带缺陷初始代码。</span>`;
+      document.getElementById("diffContainer").innerText = "已重置，等待启动迭代闭环...";
+      document.getElementById("cognitionContainer").innerHTML = "";
+      document.getElementById("singleRunHint").innerText = "状态: 已注入缺陷代码";
+    });
+
+    function renderColoredDiff(diffText) {
+      if (!diffText) return "暂无源码变更 Diff。";
+      return diffText.split("\n").map((line) => {
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+          return `<span class="diff-add">${escapeHtml(line)}</span>`;
+        }
+        if (line.startsWith("-") && !line.startsWith("---")) {
+          return `<span class="diff-del">${escapeHtml(line)}</span>`;
+        }
+        return `<span>${escapeHtml(line)}</span>`;
+      }).join("\n");
+    }
+
+    document.getElementById("btnRun").addEventListener("click", async () => {
+      const btn = document.getElementById("btnRun");
+      const term = document.getElementById("terminalContainer");
+      const cog = document.getElementById("cognitionContainer");
+      const diffEl = document.getElementById("diffContainer");
+      const caseId = document.getElementById("caseSelect").value;
+
+      btn.disabled = true;
+      term.innerHTML = `<span class="log-info">[JOB] 正在创建隔离沙箱并启动迭代任务...</span>\n`;
+      cog.innerHTML = "";
+      diffEl.innerText = "等待生成补丁...";
+      document.getElementById("singleRunHint").innerText = "状态: 实时运行中 (SSE)...";
+
+      const payload = {
+        ...collectBackendPayload(),
+        kind: "single",
+        case: caseId,
+        max_iterations: Number(document.getElementById("maxIterInput").value || 4),
+        agent_mode: document.getElementById("agentModeSelect").value,
+      };
+      if (caseId === "custom") {
+        payload.workspace = document.getElementById("customWs").value.trim();
+        payload.writable_files = document.getElementById("customWritable").value.trim();
+        payload.test_file = document.getElementById("customTest").value.trim();
+        payload.holdout_file = document.getElementById("customHoldout").value.trim();
+        payload.spec = document.getElementById("customSpec").value.trim();
+      }
 
       try {
-        const res = await fetch(`/api/run?case=${caseId}`, { method: 'POST' });
-        const data = await res.json();
+        const res = await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const { job_id } = await res.json();
+        const es = new EventSource(`/api/jobs/${job_id}/events`);
 
-        // Populate metrics
-        document.getElementById("metricPass").innerText = data.success ? "100% PASS" : "FAILED";
-        document.getElementById("metricIter").innerText = `${data.iterations} 轮`;
-        document.getElementById("metricTime").innerText = `${data.elapsed_seconds}s`;
-        document.getElementById("iterBadge").innerText = `${data.iterations} / 4 轮迭代`;
+        es.addEventListener("started", (e) => {
+          const info = JSON.parse(e.data);
+          updateBackendIndicator(info.backend_mode === "deterministic_mock", info.backend_label, info.model);
+          term.innerHTML += `<span class="log-info">[STARTED] 后端=${escapeHtml(info.backend_label)} | 模型=${escapeHtml(info.model)}</span>\n\n`;
+        });
 
-        // Render history
-        let termLog = "";
-        let cognitionHtml = "";
-        let latestDiff = "";
-
-        data.history.forEach((step, idx) => {
+        es.addEventListener("step", (e) => {
+          const step = JSON.parse(e.data);
           const it = step.iteration;
+          document.getElementById("iterBadge").innerText = `${it} 轮`;
+
+          if (step.rolled_back) {
+            term.innerHTML += `<span class="log-warn">↺ [第 ${it} 轮] 检测到测试通过数退化，已自动回滚至最佳历史快照。</span>\n`;
+          }
+
           if (step.status === "CONVERGED_SUCCESS") {
-            termLog += `<span class="log-success">✔ [第 ${it} 轮] 门禁执行全量 PASS！所有断言通过，流程完美收敛。</span>\n\n`;
+            const tr = step.test_result || {};
+            term.innerHTML += `<span class="log-success">✔ [第 ${it} 轮] TDD 门禁全量通过 (${tr.passed_count || 0}/${tr.tests_run || 0}) | 沙箱: ${escapeHtml(step.sandbox_mode || "")}</span>\n`;
+            if (step.holdout_result) {
+              const hr = step.holdout_result;
+              const cls = hr.passed ? "log-success" : "log-fail";
+              term.innerHTML += `<span class="${cls}">   → 隐藏 Holdout 验收: ${escapeHtml(hr.summary)} (${hr.passed_count}/${hr.tests_run})</span>\n`;
+            }
+          } else if (step.status === "HOLDOUT_FAILED") {
+            term.innerHTML += `<span class="log-fail">✖ [第 ${it} 轮] 可见测试通过，但隐藏 Holdout 验收失败！</span>\n${escapeHtml((step.holdout_result || {}).output || "")}\n\n`;
           } else {
-            termLog += `<span class="log-fail">✖ [第 ${it} 轮] 门禁拦截异常:</span>\n${step.test_result.output}\n\n`;
-            
-            cognitionHtml += `
+            const tr = step.test_result || {};
+            term.innerHTML += `<span class="log-fail">✖ [第 ${it} 轮] 门禁失败 (${tr.passed_count || 0}/${tr.tests_run || 0} 通过):</span>\n${escapeHtml(tr.output || "")}\n\n`;
+            const toolsHtml = (step.tool_trace || []).map((t) =>
+              `<span class="tool-chip">${escapeHtml(t.tool)}(${t.ok ? "ok" : "err"})</span>`
+            ).join("");
+            cog.innerHTML += `
               <div class="thought-item">
                 <div class="thought-header">
-                  <span style="color: var(--accent-blue);">第 ${it} 轮 根因剖析与规划</span>
-                  <span style="color: var(--accent-green);">AST 校验通过</span>
+                  <span style="color: var(--accent-blue);">第 ${it} 轮 (${escapeHtml(step.status)})</span>
+                  <span style="color: ${step.ast_valid === false ? "var(--accent-red)" : "var(--accent-green)"};">
+                    ${step.ast_valid === false ? "AST 拦截" : "AST 通过"}
+                  </span>
                 </div>
-                <div class="thought-text">${step.agent_thought || '分析报错并生成自愈代码。'}</div>
+                <div class="thought-text">${escapeHtml(step.agent_thought || step.message || "")}</div>
+                ${toolsHtml ? `<div class="tool-chips">${toolsHtml}</div>` : ""}
               </div>
             `;
           }
 
           if (step.diff) {
-            latestDiff = step.diff;
+            diffEl.innerHTML = renderColoredDiff(step.diff);
+          }
+          term.scrollTop = term.scrollHeight;
+          cog.scrollTop = cog.scrollHeight;
+        });
+
+        es.addEventListener("done", (e) => {
+          const data = JSON.parse(e.data);
+          document.getElementById("metricPass").innerText = data.success ? "PASS" : data.status;
+          document.getElementById("metricPass").style.color = data.success ? "var(--accent-green)" : "var(--accent-red)";
+          document.getElementById("metricIter").innerText = `${data.iterations} 轮`;
+          document.getElementById("metricTime").innerText = `${data.elapsed_seconds}s`;
+          const tel = data.telemetry || {};
+          document.getElementById("metricTokens").innerText = `${tel.llm_calls || 0} / ${(tel.prompt_tokens || 0) + (tel.completion_tokens || 0)}`;
+          document.getElementById("metricRollback").innerText = `${tel.rollbacks || 0}`;
+          document.getElementById("integrityText").innerText = data.integrity_verified ? "SHA-256 完整未篡改" : "完整性异常!";
+          document.getElementById("singleRunHint").innerText = `完成: ${data.final_message}`;
+          btn.disabled = false;
+          es.close();
+        });
+
+        es.addEventListener("error", (e) => {
+          if (e.data) {
+            const err = JSON.parse(e.data);
+            term.innerHTML += `<span class="log-fail">[ERROR] ${escapeHtml(err.error)}</span>\n`;
+          }
+          btn.disabled = false;
+          es.close();
+        });
+      } catch (err) {
+        term.innerHTML += `<span class="log-fail">[ERROR] ${escapeHtml(err.message)}</span>`;
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("btnStartRelay").addEventListener("click", async () => {
+      const btn = document.getElementById("btnStartRelay");
+      const listEl = document.getElementById("relayTasksContainer");
+      const reportEl = document.getElementById("handoverContainer");
+      const dlBtn = document.getElementById("btnDownloadHandover");
+
+      btn.disabled = true;
+      dlBtn.classList.add("hidden");
+      listEl.innerHTML = `<div style="color: var(--accent-blue); padding: 6px;">正在初始化夜间硅基接力队列...</div>`;
+      reportEl.innerText = "接力运行中，完成后将自动生成晨间交接简报...";
+
+      const payload = {
+        ...collectBackendPayload(),
+        kind: "relay",
+        plan_path: document.getElementById("relayPlanPath").value.trim(),
+        workspace: document.getElementById("relayWorkspace").value.trim(),
+        wall_budget: Number(document.getElementById("relayBudget").value || 600),
+      };
+
+      try {
+        const res = await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const { job_id } = await res.json();
+        const es = new EventSource(`/api/jobs/${job_id}/events`);
+        let totalTasks = 0;
+        let doneTasks = 0;
+
+        es.addEventListener("started", (e) => {
+          const info = JSON.parse(e.data);
+          totalTasks = info.total_tasks || 0;
+          updateBackendIndicator(info.backend_mode === "deterministic_mock", info.backend_label, info.model);
+          document.getElementById("relayProgressBadge").innerText = `0 / ${totalTasks} 任务`;
+          listEl.innerHTML = "";
+        });
+
+        es.addEventListener("relay_event", (e) => {
+          const ev = JSON.parse(e.data);
+          if (ev.event === "task_started") {
+            const row = document.createElement("div");
+            row.className = "relay-task-row";
+            row.id = `relay-task-${ev.task_id}`;
+            row.innerHTML = `
+              <div class="relay-task-top">
+                <strong>[${ev.index}/${ev.total}] ${escapeHtml(ev.task_id)} · ${escapeHtml(ev.title)}</strong>
+                <span class="badge-run" id="status-${escapeHtml(ev.task_id)}">执行中...</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;" id="detail-${escapeHtml(ev.task_id)}">正在执行 TDD 沙箱验证与自修复...</div>
+            `;
+            listEl.appendChild(row);
+          } else if (ev.event === "task_step") {
+            const det = document.getElementById(`detail-${ev.task_id}`);
+            if (det && ev.step) {
+              det.innerText = `第 ${ev.step.iteration} 轮 -> ${ev.step.status}` + (ev.step.rolled_back ? " (触发回滚)" : "");
+            }
+          } else if (ev.event === "task_finished") {
+            doneTasks += 1;
+            document.getElementById("relayProgressBadge").innerText = `${doneTasks} / ${totalTasks} 任务`;
+            const st = document.getElementById(`status-${ev.task_id}`);
+            const det = document.getElementById(`detail-${ev.task_id}`);
+            if (st) {
+              st.className = ev.success ? "badge-ok" : "badge-fail";
+              st.innerText = ev.status;
+            }
+            if (det && ev.task_report) {
+              const r = ev.task_report;
+              const regText = r.regression_result ? (r.regression_result.passed ? ` | 回归=${r.regression_result.checked_tasks}通过` : " | 回归失败已回滚") : "";
+              const holdText = r.holdout_result ? (r.holdout_result.passed ? " | Holdout=PASS" : " | Holdout=FAIL") : "";
+              det.innerText = `轮次=${r.iterations} | 耗时=${r.elapsed_seconds}s | 完整性=${r.integrity_verified ? "SHA256 OK" : "ERR"}${holdText}${regText}`;
+            }
           }
         });
 
-        terminalContainer.innerHTML = termLog;
-        cognitionContainer.innerHTML = cognitionHtml;
+        es.addEventListener("done", (e) => {
+          const summary = JSON.parse(e.data);
+          latestHandoverMarkdown = summary.handover_markdown || "";
+          reportEl.innerText = latestHandoverMarkdown;
+          document.getElementById("handoverBadge").innerText = summary.all_succeeded ? "全部收敛" : "需人工接续";
+          document.getElementById("metricPass").innerText = summary.all_succeeded ? "ALL PASS" : "PARTIAL";
+          document.getElementById("metricPass").style.color = summary.all_succeeded ? "var(--accent-green)" : "var(--accent-amber)";
+          document.getElementById("metricIter").innerText = `${summary.tasks_succeeded}/${summary.tasks_total}`;
+          document.getElementById("metricTime").innerText = `${summary.elapsed_seconds}s`;
+          const tel = summary.telemetry || {};
+          document.getElementById("metricTokens").innerText = `${tel.llm_calls || 0} / ${(tel.prompt_tokens || 0) + (tel.completion_tokens || 0)}`;
+          document.getElementById("integrityText").innerText = "SHA-256 门禁已验证";
+          if (latestHandoverMarkdown) dlBtn.classList.remove("hidden");
+          btn.disabled = false;
+          es.close();
+        });
 
-        // Render colored diff
-        if (latestDiff) {
-          const formattedDiff = latestDiff.split('\n').map(line => {
-            if (line.startsWith('+') && !line.startsWith('+++')) return `<span class="diff-add">${escapeHtml(line)}</span>`;
-            if (line.startsWith('-') && !line.startsWith('---')) return `<span class="diff-del">${escapeHtml(line)}</span>`;
-            return `<span>${escapeHtml(line)}</span>`;
-          }).join('\n');
-          diffContainer.innerHTML = formattedDiff;
-        } else {
-          diffContainer.innerText = "代码已完全满足门禁要求，无需追加补丁。";
-        }
-
-        gateStatusText.innerText = data.success ? "全量 PASS" : "异常未收敛";
+        es.addEventListener("error", (e) => {
+          if (e.data) {
+            const err = JSON.parse(e.data);
+            reportEl.innerText = `[ERROR] ${err.error}`;
+          }
+          btn.disabled = false;
+          es.close();
+        });
       } catch (err) {
-        terminalContainer.innerHTML = `<span class="log-fail">[ERROR] 通信异常: ${err.message}</span>`;
-      } finally {
-        btnRun.disabled = false;
-        btnRun.innerText = "🚀 启动夜间自主迭代闭环";
+        reportEl.innerText = `[ERROR] ${err.message}`;
+        btn.disabled = false;
       }
-    }
+    });
 
-    async function resetDefect() {
-      const caseId = caseSelect.value;
-      await fetch(`/api/reset?case=${caseId}`, { method: 'POST' });
-      terminalContainer.innerHTML = '<span class="log-warn">[RESET] 已成功重置为带缺陷的初始算子源码。</span>\n';
-      diffContainer.innerText = '已重置代码。点击「启动夜间自主迭代闭环」运行智能体。';
-      cognitionContainer.innerHTML = '<div style="color: var(--text-muted); padding: 12px;">待命状态。</div>';
-      gateStatusText.innerText = "已注入缺陷";
-      document.getElementById("metricPass").innerText = "--";
-      document.getElementById("metricIter").innerText = "--";
-      document.getElementById("metricTime").innerText = "--";
-    }
-
-    function escapeHtml(text) {
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-
-    btnRun.addEventListener("click", runAgent);
-    btnReset.addEventListener("click", resetDefect);
+    document.getElementById("btnDownloadHandover").addEventListener("click", () => {
+      if (!latestHandoverMarkdown) return;
+      const blob = new Blob([latestHandoverMarkdown], { type: "text/markdown;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "HANDOVER_REPORT.md";
+      a.click();
+    });
   </script>
 </body>
 </html>

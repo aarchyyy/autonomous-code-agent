@@ -1,22 +1,46 @@
 """
 Prompt Engineering & Context Templates for Autonomous Code Synthesis & Verification Agent.
-Encapsulates strict TDD gatekeeper rules, error traceback slicing, and ReAct self-reflection instructions.
+Encapsulates TDD gatekeeper rules, multi-turn failure context, anti-stagnation hints,
+and ReAct tool-use instructions.
 """
 
-SYSTEM_PROMPT = """You are an expert Autonomous Code Synthesis & Systems Engineer working inside an automated TDD (Test-Driven Development) night-relay loop.
+from __future__ import annotations
 
-Your mission is to autonomously inspect, diagnose, and patch software components so they pass 100% of the unit test guardrails without any human intervention.
+from typing import List, Optional
 
-CRITICAL OPERATIONAL RULES:
-1. TEST IMMUTABILITY: The test files and assertions represent the ground-truth specification. NEVER modify or weaken test assertions. You must fix the implementation to satisfy the tests.
-2. ROOT CAUSE ANALYSIS: Carefully analyze the failure traceback, assertion values, exception types, and boundary conditions (e.g., negative indices, scale factors, shape mismatch, unaligned offsets).
-3. 0-ULP & PRECISION COMPLIANCE: If the failure is numerical or mathematical, respect IEEE 754 precision constraints, clipping bounds, and exact formula alignment.
-4. SYNTAX SAFETY: Ensure your generated code is 100% syntactically valid Python.
-5. CLEAN OUTPUT FORMAT:
-   Always structure your response into two distinct sections:
-   [THOUGHT]: A concise breakdown of the root cause, what went wrong, and the exact code modifications planned.
-   [CODE]: The complete, revised Python code for the target source file, enclosed in standard ```python ... ``` fences.
+from .tools import format_tools_for_prompt
+
+SYSTEM_PROMPT = """You are an Autonomous Code Synthesis & Systems Engineer operating inside a TDD night-relay loop.
+
+Your mission is to inspect failing tests, diagnose root causes, and patch the authorized target implementation until all tests pass without human intervention.
+
+OPERATIONAL RULES:
+1. TEST IMMUTABILITY: Test files are immutable ground-truth specifications. NEVER attempt to modify or bypass tests.
+2. ROOT CAUSE DIAGNOSIS: Analyze exact tracebacks, boundary conditions (negative indices, empty inputs, shape mismatches, NaN/Inf, mutability/aliasing), and type invariants.
+3. NUMERICAL PRECISION RIGOR: Never replace true floating-point arithmetic with arbitrary `round(..., 6)` decimal rounding. Use `math.fsum`, IEEE-754 `float32`/`float64` semantics, and `math.isfinite` checks as required.
+4. SYNTAX & POLICY COMPLIANCE: Output valid Python code with no hidden side effects.
+5. RESPONSE FORMAT:
+   [THOUGHT]: Concise root cause analysis and planned code fix.
+   [CODE]: Complete updated Python implementation for the target file inside ```python ... ``` fences.
 """
+
+REACT_SYSTEM_PROMPT = f"""You are an Autonomous Software Engineer executing an unattended Night-Relay TDD workflow.
+
+You operate inside a restricted sandbox with explicit write allowlists and immutable test gates.
+
+OPERATIONAL RULES:
+1. NEVER attempt to modify test files or access paths outside the project workspace.
+2. Inspect the codebase before guessing: read relevant source modules and visible test files to understand cross-file contracts.
+3. Prefer minimal, surgical `patch_file` edits (or `write_file` when rewriting a small module cleanly).
+4. After applying changes, ALWAYS call `run_tests` to verify against the isolated sandbox gate.
+5. Numerical rigor: Do NOT use `round(..., 6)` to mask floating-point behavior; use exact IEEE-754 / `math.fsum` / `math.isfinite` logic.
+6. If native tool calling is unavailable, invoke exactly one tool per turn using:
+   [THOUGHT] your reasoning [/THOUGHT]
+   [TOOL_CALL] {{"name": "tool_name", "arguments": {{...}}}} [/TOOL_CALL]
+
+{format_tools_for_prompt()}
+"""
+
 
 def build_error_feedback_prompt(
     target_file: str,
@@ -24,26 +48,55 @@ def build_error_feedback_prompt(
     test_file: str,
     test_output: str,
     iteration: int,
-    max_iterations: int
+    max_iterations: int,
+    task_spec: Optional[str] = None,
+    stagnation_warning: Optional[str] = None,
+    previous_attempts_summary: Optional[List[str]] = None,
 ) -> str:
-    """Constructs prompt incorporating current source code and execution failure traceback."""
-    return f"""### TDD GATEKEEPER ALERT: Test Suite Failed (Iteration {iteration} of {max_iterations})
+    """Constructs prompt incorporating current source, traceback, and prior attempt history."""
+    sections: List[str] = [
+        f"### TDD GATEKEEPER REPORT (Iteration {iteration} of {max_iterations})",
+        f"Target File to Patch: `{target_file}`",
+        f"Test Gate Executed: `{test_file}`",
+    ]
+    if task_spec:
+        sections.append(f"#### Task Specification:\n{task_spec}")
 
-Target File to Patch: `{target_file}`
-Test Gate Executed: `{test_file}`
+    sections.append(f"#### Current Source Code (`{target_file}`):\n```python\n{current_source}\n```")
+    sections.append(f"#### Test Execution Output & Traceback:\n```text\n{test_output}\n```")
 
-#### 1. Current Source Code:
-```python
-{current_source}
-```
+    if previous_attempts_summary:
+        hist_text = "\n".join(f"- {item}" for item in previous_attempts_summary[-3:])
+        sections.append(f"#### Previous Attempts Summary (Do NOT repeat failed strategies):\n{hist_text}")
 
-#### 2. Test Execution Output & Failure Traceback:
-```text
-{test_output}
-```
+    if stagnation_warning:
+        sections.append(f"#### ⚠️ STAGNATION ALERT:\n{stagnation_warning}")
 
-#### 3. Instructions:
-1. Examine the traceback and pinpoint why the assertions failed.
-2. Write a clear [THOUGHT] explaining the root cause and repair strategy.
-3. Provide the full corrected implementation of `{target_file}` inside ```python ... ``` under [CODE].
-"""
+    sections.append(
+        "#### Instructions:\n"
+        f"1. Diagnose why the assertions or boundary checks failed.\n"
+        f"2. Provide [THOUGHT] explaining the root cause and fix.\n"
+        f"3. Provide the complete corrected `{target_file}` inside ```python ... ``` under [CODE]."
+    )
+    return "\n\n".join(sections)
+
+
+def build_react_task_prompt(
+    writable_files: List[str],
+    test_file: str,
+    initial_test_output: str,
+    task_spec: Optional[str] = None,
+) -> str:
+    parts: List[str] = [
+        "### NIGHT-RELAY AUTONOMOUS TASK BRIEF",
+        f"Authorized Writable Files: {', '.join(f'`{f}`' for f in writable_files)}",
+        f"Immutable TDD Gate: `{test_file}`",
+    ]
+    if task_spec:
+        parts.append(f"#### Specification:\n{task_spec}")
+    parts.append(f"#### Baseline TDD Gate Output (currently failing):\n```text\n{initial_test_output}\n```")
+    parts.append(
+        "Inspect the workspace files using `list_files` / `read_file`, fix the implementation in the "
+        "authorized writable files, and verify with `run_tests` until all tests pass."
+    )
+    return "\n\n".join(parts)

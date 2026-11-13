@@ -1,0 +1,53 @@
+{
+  "project_name": "24h Carbon-Silicon Night Relay Demo Suite",
+  "max_total_seconds": 600,
+  "max_consecutive_failures": 2,
+  "use_ephemeral_copy": true,
+  "tasks": [
+    {
+      "task_id": "T1_spmm_csr",
+      "title": "Harden CSR SpMM Boundary, Negative Index & Compensated Sum",
+      "subdir": "benchmarks/case1_spmm_boundary",
+      "writable_files": ["kernel.py"],
+      "test_file": "test_kernel.py",
+      "spec": "Validate CSR row_ptr invariants and column bounds (no Python negative wrap-around), skip empty rows, reject non-finite inputs, and use math.fsum.",
+      "max_iterations": 4,
+      "agent_mode": "patch",
+      "strict_ast": true
+    },
+    {
+      "task_id": "T2_vector_f32",
+      "title": "Align Vector Scale Operator to IEEE-754 Float32 Precision",
+      "subdir": "benchmarks/case2_vector_scale",
+      "writable_files": ["kernel.py"],
+      "test_file": "test_kernel.py",
+      "spec": "Compute exact IEEE-754 float32 (a + b) * scale without decimal round(..., 6) truncation; validate shape equality and finiteness.",
+      "max_iterations": 4,
+      "agent_mode": "patch",
+      "strict_ast": true
+    },
+    {
+      "task_id": "T3_gqa_kv",
+      "title": "Implement Isolated GQA KV-Cache Repeat-Interleave Broadcast",
+      "subdir": "benchmarks/case3_kv_cache_broadcast",
+      "writable_files": ["kernel.py"],
+      "test_file": "test_kernel.py",
+      "spec": "Expand [batch, num_kv_heads, seq_len, head_dim] to num_query_heads with independent head buffers and divisibility checks.",
+      "max_iterations": 4,
+      "agent_mode": "patch",
+      "strict_ast": true
+    },
+    {
+      "task_id": "T4_multi_file_scheduler",
+      "title": "Multi-File Token Batch Scheduler & Holdout Verification",
+      "subdir": "benchmarks/case4_relay_scheduler",
+      "writable_files": ["precision.py", "scheduler.py"],
+      "test_file": "test_scheduler.py",
+      "holdout_test_file": "holdout_test_scheduler.py",
+      "spec": "Fix weighted_score in precision.py (length/finiteness checks + math.fsum) and dispatch_batch in scheduler.py (descending priority, id tie-break, token capacity, non-mutating output).",
+      "max_iterations": 4,
+      "agent_mode": "react",
+      "strict_ast": true
+    }
+  ]
+}
