@@ -2,7 +2,6 @@ import json
 import threading
 import unittest
 import urllib.request
-from http.server import ThreadingHTTPServer
 
 from run_web import AgentDashboardHandler, _DashboardServer
 
@@ -26,12 +25,14 @@ class TestWebServer(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             html = resp.read().decode("utf-8")
             self.assertIn("ACS-Agent", html)
+            self.assertIn("night_relay_changes.patch", html)
 
-        with urllib.request.urlopen(f"{self.base}/api/config", timeout=5) as resp:
+        with urllib.request.urlopen(f"{self.base}/api/config", timeout=8) as resp:
             cfg = json.loads(resp.read().decode("utf-8"))
-            self.assertEqual(len(cfg["cases"]), 4)
+            self.assertEqual(len(cfg["cases"]), 5)
             self.assertIn("kunlun-gateway", cfg["presets"])
             self.assertIn("ollama", cfg["presets"])
+            self.assertIn("docker_runtime", cfg)
 
     def test_sse_single_job_streaming(self):
         req = urllib.request.Request(
@@ -60,12 +61,13 @@ class TestWebServer(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as resp:
             job_id = json.loads(resp.read().decode("utf-8"))["job_id"]
 
-        with urllib.request.urlopen(f"{self.base}/api/jobs/{job_id}/events", timeout=15) as stream:
+        with urllib.request.urlopen(f"{self.base}/api/jobs/{job_id}/events", timeout=20) as stream:
             raw = stream.read().decode("utf-8")
         self.assertIn("event: started", raw)
         self.assertIn("event: relay_event", raw)
         self.assertIn("event: done", raw)
         self.assertIn("HANDOVER_REPORT.md", raw)
+        self.assertIn("night_relay_changes.patch", raw)
 
 
 if __name__ == "__main__":

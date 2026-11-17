@@ -2,6 +2,7 @@
 """
 WebUI Server for Autonomous Code Synthesis & Verification Agent (ACS-Agent).
 Built with Python standard library (ThreadingHTTPServer + SSE streaming) — zero third-party deps.
+Supports Single-Task ReAct/Patch (Python + C++17), Docker/Process Sandboxes, and 24h DAG Night Relay.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from src.benchmarks_catalog import (
 )
 from src.llm_backend import HARDWARE_PRESETS, create_llm_backend, probe_llm_endpoint
 from src.relay import RelayOrchestrator, RelayPlan
+from src.sandbox import detect_cpp_compiler, detect_docker_runtime
 
 JOBS: Dict[str, Dict[str, Any]] = {}
 JOBS_LOCK = threading.Lock()
@@ -61,6 +63,8 @@ def _run_single_job(job_id: str, payload: Dict[str, Any]) -> None:
         backend = _create_backend_from_payload(payload)
         case_id = payload.get("case", "case2")
         custom_ws = (payload.get("workspace") or "").strip()
+        sandbox_backend = payload.get("sandbox_backend", "process")
+        docker_image = (payload.get("docker_image") or "python:3.12-alpine").strip()
 
         if custom_ws:
             workspace_root = os.path.realpath(custom_ws)
@@ -72,6 +76,7 @@ def _run_single_job(job_id: str, payload: Dict[str, Any]) -> None:
             spec = (payload.get("spec") or "").strip() or None
             agent_mode = payload.get("agent_mode", "auto")
             strict_ast = bool(payload.get("strict_ast", False))
+            gate_runner = payload.get("gate_runner", "auto")
         else:
             case_info = BENCHMARK_CASES.get(case_id, BENCHMARK_CASES["case2"])
             workspace_root = inject_defective_starter(case_id)
@@ -79,14 +84,18 @@ def _run_single_job(job_id: str, payload: Dict[str, Any]) -> None:
             test_file = case_info["test"]
             holdout = case_info.get("holdout")
             spec = case_info.get("spec")
-            agent_mode = case_info.get("agent_mode", "auto")
+            agent_mode = payload.get("agent_mode") or case_info.get("agent_mode", "auto")
             strict_ast = case_info.get("strict_ast", False)
+            gate_runner = case_info.get("gate_runner", "auto")
+            if gate_runner == "cpp" and sandbox_backend == "docker" and "alpine" in docker_image:
+                sandbox_backend = "process"
 
         _push_job_event(job_id, "started", {
             "kind": "single",
             "backend_mode": "deterministic_mock" if backend.is_mock else "live_llm",
             "backend_label": backend.backend_label,
             "model": backend.model,
+            "sandbox_backend": sandbox_backend,
             "workspace": workspace_root,
         })
 
@@ -101,6 +110,9 @@ def _run_single_job(job_id: str, payload: Dict[str, Any]) -> None:
             task_spec=spec,
             agent_mode=agent_mode,
             strict_ast=strict_ast,
+            sandbox_backend=sandbox_backend,
+            docker_image=docker_image,
+            gate_runner=gate_runner,
         )
 
         result = agent.run_loop(
@@ -123,6 +135,10 @@ def _run_relay_job(job_id: str, payload: Dict[str, Any]) -> None:
         plan = RelayPlan.from_json_file(plan_path)
         if payload.get("wall_budget"):
             plan.max_total_seconds = int(payload["wall_budget"])
+        if payload.get("token_budget"):
+            plan.max_total_tokens = int(payload["token_budget"])
+        if payload.get("sandbox_backend"):
+            plan.sandbox_backend = str(payload["sandbox_backend"])
 
         custom_ws = (payload.get("workspace") or "").strip()
         if custom_ws:
@@ -131,6 +147,7 @@ def _run_relay_job(job_id: str, payload: Dict[str, Any]) -> None:
             tmp_stage = tempfile.TemporaryDirectory(prefix="acs_web_relay_")
             workspace_root = stage_benchmarks_copy(tmp_stage.name)
 
+        resume_dir = (payload.get("resume_dir") or "").strip() or None
         output_dir = os.path.join(BASE_DIR, ".acs_runs", f"web_{job_id[:8]}")
         _push_job_event(job_id, "started", {
             "kind": "relay",
@@ -139,6 +156,7 @@ def _run_relay_job(job_id: str, payload: Dict[str, Any]) -> None:
             "backend_mode": "deterministic_mock" if backend.is_mock else "live_llm",
             "backend_label": backend.backend_label,
             "model": backend.model,
+            "sandbox_backend": plan.sandbox_backend,
         })
 
         orchestrator = RelayOrchestrator(
@@ -147,6 +165,7 @@ def _run_relay_job(job_id: str, payload: Dict[str, Any]) -> None:
             llm_backend=backend,
             output_dir=output_dir,
             enable_git_branch=False,
+            resume_from_dir=resume_dir,
         )
         summary = orchestrator.run(
             event_callback=lambda ev: _push_job_event(job_id, "relay_event", ev)
@@ -203,6 +222,7 @@ class AgentDashboardHandler(SimpleHTTPRequestHandler):
                     "test": info["test"],
                     "holdout": info.get("holdout"),
                     "agent_mode": info.get("agent_mode", "auto"),
+                    "gate_runner": info.get("gate_runner", "auto"),
                     "spec": info.get("spec", ""),
                 }
                 for cid, info in BENCHMARK_CASES.items()
@@ -216,11 +236,15 @@ class AgentDashboardHandler(SimpleHTTPRequestHandler):
                 or os.getenv("KUNLUN_BASE_URL")
                 or os.getenv("OPENAI_BASE_URL")
             )
+            dkr = detect_docker_runtime(timeout=3)
+            cpp_comp = detect_cpp_compiler()
             self._send_json({
                 "cases": cases_meta,
                 "presets": HARDWARE_PRESETS,
                 "env_live_configured": has_env_live,
                 "env_model": os.getenv("LLM_MODEL", ""),
+                "docker_runtime": dkr,
+                "cpp_compiler": os.path.basename(cpp_comp) if cpp_comp else None,
             })
             return
 
@@ -316,6 +340,7 @@ class AgentDashboardHandler(SimpleHTTPRequestHandler):
                 task_spec=case_info.get("spec"),
                 agent_mode=case_info.get("agent_mode", "auto"),
                 strict_ast=case_info.get("strict_ast", False),
+                gate_runner=case_info.get("gate_runner", "auto"),
             )
             self._send_json(agent.run_loop())
             return
@@ -331,8 +356,8 @@ class _DashboardServer(ThreadingHTTPServer):
 def run_server(port: int = 8765) -> None:
     server = _DashboardServer(("127.0.0.1", port), AgentDashboardHandler)
     print("=" * 80)
-    print(f"  ACS-Agent Dashboard running at: http://127.0.0.1:{port}")
-    print("  Features: Real-Time SSE Stream | Single-Task ReAct | 24h Night Relay Workbench")
+    print(f"  ACS-Agent Complete Edition Dashboard running at: http://127.0.0.1:{port}")
+    print("  Features: Real-Time SSE Stream | Python + C++17 Gates | Docker Sandbox | 24h DAG Night Relay")
     print("  Hardware Presets: Kunlun GPT-Factory One / Ollama (Ryzen AI MAX+ 395) / vLLM / Cloud")
     print("  Press Ctrl+C to terminate the server.")
     print("=" * 80)

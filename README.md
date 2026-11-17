@@ -1,172 +1,137 @@
-# 自主代码迭代与可信验证智能体 (ACS-Agent)
+# 自主代码迭代与可信验证智能体 (ACS-Agent · Complete Edition)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.9%2B%20Stdlib%20Zero--Dep-blue?style=flat-square&logo=python" alt="Python Zero-Dep">
-  <img src="https://img.shields.io/badge/Relay-24h%20Carbon--Silicon-purple?style=flat-square" alt="24h Relay">
-  <img src="https://img.shields.io/badge/Sandbox-Ephemeral%20R%2FO%20%2B%20SHA256-green?style=flat-square" alt="Sandbox">
+  <img src="https://img.shields.io/badge/Languages-Python%20%2B%20C%2B%2B17%2FHIP-00599C?style=flat-square&logo=cplusplus" alt="Python & C++17">
+  <img src="https://img.shields.io/badge/Relay-24h%20DAG%20%2B%20Resume-purple?style=flat-square" alt="24h DAG Relay">
+  <img src="https://img.shields.io/badge/Sandbox-Process%20rlimit%20%7C%20Rootless%20Docker-green?style=flat-square&logo=docker" alt="Sandbox">
   <img src="https://img.shields.io/badge/Hardware-Ryzen%20AI%20MAX%2B%20395%20%2F%20GPT--Factory-red?style=flat-square" alt="Hardware">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License">
 </p>
 
-> **面向 24h「碳硅接力」夜间自主研发赛制的工程级 TDD 闭环代码智能体**  
-> 让人类在白天定义架构、任务队列与不可变门禁，让 Agent 在夜间安全沙箱内自主探索、修改、测试、回滚并生成可审计的晨间交接简报。
+> **面向 24h「碳硅接力」夜间自主研发赛制的工程级多语言 TDD 闭环代码智能体（完全体）**  
+> 让人类在白天定义 DAG 任务拓扑、接口骨架与不可变门禁，让 Agent 在夜间双层安全沙箱（进程级 `rlimit` 或无网只读 Docker 容器）内自主探索、修改、编译测试、防退化回滚、断点续跑，并在清晨交付可审计的 `HANDOVER_REPORT.md` 与 `night_relay_changes.patch` 补丁包。
 
 ---
 
-## 🎯 赛题贴合与核心演进
+## 🎯 核心架构与完全体特性
 
-针对 **24h 人机接力赛制**（19日碳基主场 → 夜间全员撤场硅基接力 → 20日接续优化）与统一算力环境（**昆仑芯 AI Agent Gateway / AMD Ryzen AI MAX+ 395**、**GPT-Factory One 本地 Token 工厂**、**KCoder 工具链**），本项目构建了完整的闭环工程基础设施：
+针对 **24h 人机接力赛制**（19日碳基主场 → 夜间全员撤场硅基接力 → 20日接续优化）与异构算力底座（**昆仑芯 AI Agent Gateway / GPT-Factory One**、**AMD Ryzen AI MAX+ 395 本地推理**、**vLLM / ROCm**），完全体包含五大核心子系统：
 
-1. **三阶段人机接力工作流 (`src/relay.py` + `run_relay.py`)**：
-   - **19日 碳基主场**：人类规划 `relay_plan.json`（多任务队列、授权可写文件、不可变 TDD 门禁与隐藏 Holdout 验收测试）。
-   - **夜间 硅基接力**：`RelayOrchestrator` 在墙钟时间预算与连续失败熔断器约束下无人值守串行推进；每完成一个任务即执行**跨任务全量回归验证**，若破坏前置任务则自动回滚；可选在隔离分支 `acs-relay/<run_id>` 提交里程碑。
-   - **20日 接续优化**：自动生成 **`HANDOVER_REPORT.md`**、**`handover_summary.json`** 与逐条不可变 **`audit_events.jsonl`**，人类工程师早晨直接基于带 Diff、SHA-256 校验与未收敛告警清单的报告接续完善。
+1. **24h DAG 接力编排、断点重验续跑与统一补丁导出 (`src/relay.py` + `run_relay.py`)**：
+   - **拓扑依赖调度 (`depends_on`)**：自动做 Kahn 拓扑排序与环路检测；若上游任务未收敛，仅将下游依赖分支标记为 `SKIPPED_DEPENDENCY`，**互不依赖的平行分支继续推进**。
+   - **三维预算熔断与跨任务回归守卫**：同时受墙钟时间 (`max_total_seconds`)、Token 预算 (`max_total_tokens`) 与连续失败熔断器 (`max_consecutive_failures`) 约束；每完成一个任务立即重跑所有历史已完成任务的可见门禁与隐藏 Holdout，一旦破坏前序任务立刻触发 `REGRESSION_ROLLED_BACK` 自动回滚。
+   - **崩溃安全断点续跑 (`--resume <run_dir>`)**：夜间断电或中断重启时，自动对历史成功任务执行 **SHA-256 + 可见测试 + Holdout 重验**，零 Token 开销秒级恢复为 `RESUMED_VERIFIED` 并从中断处接续执行。
+   - **晨间四件套交付**：自动产出 `HANDOVER_REPORT.md`、`handover_summary.json`、`audit_events.jsonl` 以及可直接 `git apply` 的汇总补丁 **`night_relay_changes.patch`**（同时支持 `--git-branch` 隔离分支里程碑提交）。
 
-2. **真实多工具 ReAct + 双协议适配 (`src/agent.py`, `src/tools.py`, `src/llm_backend.py`)**：
-   - **多文件 ReAct 工具链**：智能体不再局限于单文件覆写，可通过 `list_files`、`read_file`、`search_code`、`patch_file`、`write_file`、`run_tests` 自主探索多文件工程（无任意 Shell 执行工具暴露）。
-   - **双协议自动兼容**：优先使用 OpenAI 原生 `tools` 函数调用；若本地模型网关（如部分本地 vLLM / llama.cpp / 网关服务）返回 HTTP 400 拒绝 `tools` 参数，自动降级至文本 `[TOOL_CALL] {...} [/TOOL_CALL]` 协议并兼容 `<think>...</think>` 推理输出。
-   - **本地 Token 工厂与端侧算力预设**：内置 `kunlun-gateway`、`ollama`（AMD Ryzen AI MAX+ 395 本地推理）、`vllm`、`dashscope`、`deepseek`、`openai` 预设，支持本地免真实 Key 访问及 `/v1/models` 端点在线探测。
+2. **双层执行沙箱：用户态 `rlimit` + Rootless 无网只读 Docker 容器 (`src/sandbox.py`)**：
+   - **Tier 1 进程隔离 (`--sandbox process`)**：临时目录拷贝（隔离隐藏 `hidden_files`）、受保护文件 `0o444` 只读、剔除 `*KEY*`/`*TOKEN*`/`*SECRET*` 等敏感环境变量、`python -I`、POSIX `RLIMIT_CPU`/`RLIMIT_FSIZE`（Linux 含 `RLIMIT_AS`）与 `os.killpg` 进程组超时强杀。
+   - **Tier 2 容器级内核隔离 (`--sandbox docker` / `auto`)**：通过 `docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --user 65534:65534 -v <stage>:/workspace:ro` 提供断网、只读根文件系统、全 Linux Capability 剥离与超时容器强杀清理。
+   - **细粒度静态策略与多语言预检 (`ASTPolicyInspector` & `NativeSyntaxInspector`)**：Python 支持 `strict_ast=True` 叠加 `allowed_imports` / `allowed_calls` 精细白名单；C/C++/HIP (`.cpp`/`.hpp`/`.hip`) 在落盘前自动执行 `clang++`/`g++`/`hipcc -std=c++17 -fsyntax-only` 语法与类型预检，并在沙箱内编译运行原生二进制门禁。
+   - **SHA-256 完整性监控 (`IntegrityMonitor`)**：每次门禁执行前后双次校验测试与 Holdout 文件 SHA-256。
 
-3. **分层隔离沙箱与门禁防作弊 (`src/sandbox.py`)**：
-   - **路径与越权防护 (`PathGuard`)**：基于 `os.path.realpath` 规范化路径，阻断 `../` 目录穿越、绝对路径越界、符号链接逃逸（含未创建文件的父目录软链检查）；强制执行 `writable_files` 写白名单，禁止写入 `protected_files`（测试文件）与 `.git` / `.acs_runs`。
-   - **隐藏 Holdout 防过拟合 (`hidden_files`)**：Agent 的读/列目录/搜索工具均无法访问隐藏 Holdout 测试；仅在可见 TDD 门禁全量通过后，由评估器在独立阶段执行最终 Holdout 验收。
-   - **SHA-256 完整性校验 (`IntegrityMonitor`)**：每次测试门禁执行前后核验受保护测试与 Holdout 文件的 SHA-256 摘要，捕获任何外部或运行期篡改。
-   - **临时只读隔离副本 + `python -I` + 资源限制 (`IsolatedTestRunner`)**：将工作区复制到临时目录执行测试，受保护文件设为 `0o444` 只读；剔除 `OPENAI_API_KEY` / `*KEY*` / `*TOKEN*` / `*SECRET*` 等敏感环境变量；以 `python -I` 隔离模式启动子进程，设置 POSIX `RLIMIT_CPU`、`RLIMIT_FSIZE`（Linux 下含 `RLIMIT_AS`），超时时通过 `os.killpg` 终止整个进程组。
-   - **严格静态 AST 守卫 (`ASTPolicyInspector`)**：可选开启 `strict_ast=True` 阻断 `os`、`subprocess`、`socket`、`eval`、`exec`、`open` 等高危导入与调用。
+3. **多文件 ReAct + 上下文滑窗压缩 + 全模式防停滞熔断 (`src/agent.py`, `src/context.py`, `src/tools.py`)**：
+   - **6 项受控沙箱工具**：`list_files`、`read_file`、`search_code`、`patch_file`（支持行尾空白归一化唯一块回退匹配）、`write_file`（临时文件 + `os.replace` 原子替换）、`run_tests`（不暴露任意 Shell）。
+   - **双协议自动降级 (`LiveLLMClient`)**：原生 OpenAI `tools` 遇本地网关 `HTTP 400` 时无缝降级至文本 `[TOOL_CALL] {...} [/TOOL_CALL]` 协议，兼容 `<think>...</think>` 思考链提取。
+   - **确定性上下文滑窗压缩 (`ContextWindowManager`)**：长程多文件探索超过上下文阈值时，在严格保持 `assistant(tool_calls)` 与 `tool` 消息配对的前提下，将早期大体积 `read_file`/`run_tests` 观测折叠为结构化摘要并统计回收 Token 数。
+   - **Patch + ReAct 全模式防退化与防停滞 (`STALLED`)**：分数倒退自动回滚至最佳快照；无论是 Patch 还是 ReAct 模式，连续陷入相同 `(state_hash, error_signature)` 或重复无效工具调用均会提前以 `STALLED` 熔断。
 
-4. **防退化自动回滚与防停滞检测 (`src/checkpoint.py`, `src/agent.py`)**：
-   - 基于 `(passed_flag, passed_count, -failed_count)` 追踪最佳历史快照：当某轮补丁导致已通过测试数下降时自动回滚至最佳快照并注入反馈。
-   - 追踪 `(workspace_state_hash, error_signature)`：重复失败触发策略反思提示，持续空转则提前以 `STALLED` 终止，避免夜间无效消耗 Token。
+4. **无泄漏未知题泛化与 8 项红队对抗评测套件 (`src/evaluator.py` + `run_eval.py`)**：
+   - **8 项主动红队攻击探针 (`--mode redteam`)**：实测验证路径穿越、软链逃逸、篡改测试文件、高危 AST 注入与白名单放行、死循环看门狗强杀恢复、Holdout 拦截硬编码作弊、DAG 跨任务破坏回滚与下游跳过、以及离线 Mock 在未知题库上 **0% 通过率零泄漏审计**。
+   - **4 道跨领域未知评测集 (`UNSEEN_EVAL_PROBLEMS`)**：涵盖 `TTLCache`、多文件 `TenantRateLimiter`、IEEE-754 `float32` 对称 `INT8` 量化器与 C++17 `RingBuffer`，配套本地多故障注入 HTTP 压测模拟器 (`--mode fault-sim`) 与真实模型直连评测 (`--mode live`)。
 
 ---
 
-## 🏗️ 架构图
+## 🏗️ 系统架构图
 
 ```mermaid
 flowchart TD
-    A["19日碳基输入: relay_plan.json / 目标源码 / 不可变测试 + 可选 Holdout"] --> B["IsolatedTestRunner: 临时只读副本 + 脱敏环境 + python -I + rlimit"]
-    B --> C{"TDD 门禁是否全量 PASS?"}
-    C -- "是" --> D{"隐藏 Holdout & 跨任务回归校验"}
-    D -- "全部通过" --> E["保存快照 / Git 接力分支提交 → 生成 HANDOVER_REPORT.md"]
-    D -- "Holdout 或回归失败" --> F["FileSnapshotManager 自动回滚并标记原因"]
-    C -- "否" --> G["分数对比: 若通过数退化则回滚至最佳快照"]
-    G --> H["ReAct / Patch 推理引擎: 多轮记忆 + 停滞检测"]
-    H --> I["AST 语法与安全策略预检 + PathGuard 写白名单"]
-    I -- "校验通过" --> J["原子写入授权文件 + Unified Diff"]
-    I -- "被拦截" --> H
-    J --> B
+    A["19日碳基输入: DAG relay_plan.json / Python & C++17 源码 / 不可变测试 + Holdout"] --> B["RelayOrchestrator: Kahn 拓扑校验 + 断点续跑 SHA-256 重验"]
+    B --> C["IsolatedTestRunner: Process rlimit 沙箱 或 Rootless 无网只读 Docker 容器"]
+    C --> D{"可见 TDD / C++17 编译门禁 PASS?"}
+    D -- "是" --> E{"隐藏 Holdout & 跨任务全量回归"}
+    E -- "全部通过" --> F["导出 night_relay_changes.patch / Git 分支里程碑 -> HANDOVER_REPORT.md"]
+    E -- "Holdout 或回归失败" --> G["FileSnapshotManager 自动回滚 + 下游标记 SKIPPED_DEPENDENCY"]
+    D -- "否" --> H["最佳分数对比: 若退化则立即回滚最佳快照"]
+    H --> I["Patch / ReAct 推理引擎 + ContextWindowManager 滑窗压缩 + STALLED 熔断"]
+    I --> J["Python AST 白名单 / clang++ -fsyntax-only 预检 + PathGuard"]
+    J -- "校验通过" --> K["原子 os.replace 落盘 + Unified Diff"]
+    J -- "预检拦截" --> I
+    K --> C
 ```
 
 ---
 
 ## ⚡ 快速开始与验证
 
-框架核心及 Web 工作台完全基于 **Python 3.9+ 标准库**（无需安装第三方强制依赖）。
+框架核心、评测器及实时 Web 工作台完全基于 **Python 3.9+ 标准库**（零第三方强制依赖）。
 
-### 1. 运行框架自检与对抗性测试（23 项）
+### 1. 运行全量单元与对抗测试
 ```bash
 python3 -m unittest discover -s tests -v
 ```
-测试覆盖：路径穿越/软链逃逸拦截、环境变量脱敏、临时副本隔离、进程组看门狗超时、SHA-256 篡改检测、回归自动回滚、防停滞熔断、Holdout 拦截、模拟 OpenAI HTTP 服务（含原生 `tool_calls` 与 HTTP 400 降级文本 ReAct）以及 Web SSE 流式接口。
 
-### 2. CLI 单任务 / 全量基准测试
+### 2. 运行安全红队对抗与多故障未知题 HTTP 压测 (`run_eval.py`)
 ```bash
-# 离线管道冒烟演练（使用 DeterministicMockLLM 验证闭环流水线）
+# 一键执行 8 项安全红队探针 + 4 道未知题多故障 HTTP 闭环压测
+python3 run_eval.py --mode all-offline
+
+# 接入真实推理端点评测 4 道零泄漏未知题泛化能力
+python3 run_eval.py --mode live --preset kunlun-gateway --model baize-omni-sense
+```
+
+### 3. CLI 单任务 / 全量基准演练（Python + C++17 + Docker 容器沙箱）
+```bash
+# 跑通内置 Case 1-5（含 Case 5 C++17 编译门禁）
 python3 run_demo.py --mode mock
 
-# 连接现场昆仑 GPT-Factory One / 本地 Ollama / vLLM 真实大模型运行
-python3 run_demo.py --mode live --preset kunlun-gateway --model baize-omni-sense
-# 或指定自定义本地端点并先探测模型列表
-python3 run_demo.py --probe --base-url http://127.0.0.1:11434/v1
+# 使用无网只读 Rootless Docker 容器沙箱运行 Python 算例
+python3 run_demo.py --mode mock --case case2 --sandbox docker --docker-image python:3.12-alpine
 
-# 运行任意自定义项目目录（支持指定多个可写文件与隐藏 Holdout 测试）
-python3 run_demo.py --mode live --base-url http://127.0.0.1:8000/v1 --model qwen2.5-coder \
-  --workspace /path/to/your_project --target precision.py --target scheduler.py \
-  --test test_scheduler.py --holdout holdout_test_scheduler.py --react
+# 连接本地 Ollama / vLLM / 昆仑 GPT-Factory One 运行自定义工程
+python3 run_demo.py --mode live --preset ollama --model qwen2.5-coder:14b \
+  --workspace /path/to/project --target kernel.hpp --test test_kernel.cpp --gate-runner cpp
 ```
 
-### 3. 启动 24h 夜间硅基接力队列 (`run_relay.py`)
+### 4. 启动 24h DAG 夜间接力与断点续跑 (`run_relay.py`)
 ```bash
-# 在临时隔离拷贝上演练内置 4 任务夜间队列并生成晨间交接简报
+# 隔离演练 5 任务 DAG 夜间接力计划，生成 HANDOVER_REPORT.md 与 night_relay_changes.patch
 python3 run_relay.py --mode mock
 
-# 接入真实推理端点在指定仓库开启独立 Git 接力分支通宵运行
-python3 run_relay.py --mode live --preset ollama --model qwen2.5-coder:14b \
-  --workspace /path/to/repo --plan /path/to/relay_plan.json --wall-budget 28800 --git-branch
+# 从中断目录重验 SHA-256 并零 Token 续跑剩余任务
+python3 run_relay.py --mode live --preset kunlun-gateway --workspace /path/to/repo \
+  --plan relay_plan.json --resume .acs_runs/20261119-023000 --git-branch
 ```
 
-### 4. 启动交互式实时流式 Web 工作台 (`run_web.py`)
+### 5. 启动零依赖实时 SSE 双模 Web 工作台 (`run_web.py`)
 ```bash
 python3 run_web.py --port 8765
 ```
-打开浏览器访问 `http://127.0.0.1:8765`，支持：
-- **实时 SSE 事件流**展示每轮测试拦截、ReAct 工具调用轨迹、回滚告警与 Diff；
-- **算力后端预设与在线探测**（`Kunlun GPT-Factory One`、`Ollama (Ryzen AI MAX+ 395)`、`vLLM`、`DashScope`、`DeepSeek`、`OpenAI`）；
-- **单任务闭环**（内置 Case 1–4 或自定义本地路径）与 **24h 夜间接力工作台**（实时任务进度 + `HANDOVER_REPORT.md` 在线预览与下载）。
+访问 `http://127.0.0.1:8765`，支持切换 `Process` / `Docker` 沙箱、运行 Case 1–5（含 C++17）、监控上下文滑窗压缩次数、执行 DAG 夜间接力并一键下载 `HANDOVER_REPORT.md` 与 `night_relay_changes.patch`。
 
 ---
 
-## 📊 基准测试集说明
+## 📊 内置基准集 (Cases 1–5) 与未知泛化题库 (U1–U4)
 
-| 算例 | 模块/路径 | 核心工程与数学要求 | 验收手段 |
+| 编号 | 模块 / 语言 | 核心工程与数值验收契约 | 门禁构成 |
 | :--- | :--- | :--- | :--- |
-| **Case 1** | `benchmarks/case1_spmm_boundary` | CSR `row_ptr` 合法性、拒绝负下标 (`dense_b[-1]`) 与越界下标、空行跳过、非有限值拦截、`math.fsum` 补偿求和 | `test_kernel.py` (6 tests) |
-| **Case 2** | `benchmarks/case2_vector_scale` | 真实 IEEE-754 `float32` 运算（`struct` 比特级 ULP 距离验证，拒绝 `round(..., 6)` 对 `1e-7` 量级截断）、形状与非有限值检查 | `test_kernel.py` (7 tests, ULP=0) |
-| **Case 3** | `benchmarks/case3_kv_cache_broadcast` | GQA KV-Cache 广播、`num_query_heads % num_kv_heads == 0` 校验、多 batch/多 seq 校验、深拷贝独立缓冲防别名污染 | `test_kernel.py` (4 tests) |
-| **Case 4** | `benchmarks/case4_relay_scheduler` | **多文件 ReAct 协同**（`precision.py` + `scheduler.py`）：加权评分补偿求和、任务优先级与 ID 字典序平局裁决、预算上限与不可变输出 | 可见 `test_scheduler.py` + 隐藏 `holdout_test_scheduler.py` |
+| **Case 1** | `case1_spmm_boundary` (Python) | CSR `row_ptr` 单调性、拒绝负列下标 (`dense_b[-1]`) 与越界下标、空行跳过、`math.fsum` 补偿求和 | `test_kernel.py` (6 项) |
+| **Case 2** | `case2_vector_scale` (Python) | `struct.pack("!f", ...)` IEEE-754 `float32` 比特级 `0-ULP` 对齐（封杀 `round(..., 6)` 截断）、非有限值检查 | `test_kernel.py` (7 项) |
+| **Case 3** | `case3_kv_cache_broadcast` (Python) | GQA 头整除校验、多 Batch/Seq 形状检查、深拷贝独立缓冲防别名污染 | `test_kernel.py` (4 项) |
+| **Case 4** | `case4_relay_scheduler` (Python ReAct) | `precision.py` + `scheduler.py` 多文件协同：补偿求和、字典序平局裁决、Token 预算与防输入篡改 | 可见 3 项 + Holdout 2 项 |
+| **Case 5** | `case5_cpp_csr_spmv` (**C++17**) | 4 路展开 CSR SpMV：补齐 `nnz % 4 != 0` 标量尾部清理、CSR 越界异常、拓宽 `double` 累加防 `1e8f` 相消精度丢失 | `clang++` 编译可见 5 项 + Holdout 2 项 |
+| **U1–U4** | `src/evaluator.py` (Python + **C++17**) | **零泄漏未知题库**：`TTLCache`、多文件 `TenantRateLimiter`、对称 `INT8` 量化器、C++17 `RingBuffer` | 每题均含可见门禁 + 隐藏 Holdout |
 
 ---
 
-## ⚠️ 验证边界与安全限制声明 (Scope & Known Limitations)
+## ⚠️ 验证口径与工程边界声明
 
-为坚持工程严谨性与可审计原则，特此明确以下当前边界：
-
-1. **Offline Mock 模式不等同于大模型推理能力证明**：
-   - `DeterministicMockLLM` 仅对内置基准特征返回预设补丁与固定工具序列，用于无网络/无算力环境下的**流水线冒烟测试**（验证沙箱、AST 守卫、Diff、回滚、Holdout 拦截、SSE 推流与交接报告生成）。
-   - 所有报告（CLI、WebUI、JSON 与 `HANDOVER_REPORT.md`）均会显式标注 `deterministic_mock` 与 `live_llm`，绝不将离线冒烟通过率宣传为未知问题的 AI 自主推理能力；真实推理能力请使用 `--mode live` 接入实际模型评测，并结合 `tests/test_agent_loop.py` 中的本地 OpenAI-HTTP 协议闭环测试。
-2. **浮点精度验证范围**：
-   - Case 2 的 `0-ULP` 校验是针对标量/列表的 IEEE-754 `float32` 逐元素参考实现（`struct.pack("!f", ...)` 比特比对），并非 GPU/NPU 硬件汇编指令吞吐基准。
-3. **沙箱隔离的物理边界**：
-   - 当前沙箱通过用户态 `PathGuard`、只读临时工作区拷贝、环境变量密钥清洗、`python -I`、POSIX `RLIMIT_CPU`/`RLIMIT_FSIZE` 及进程组超时强杀提供**应用级防误改与防越权保障**，但**不包含内核级容器/虚拟机隔离（如 Linux namespaces / seccomp / Docker）**。若在生产环境执行完全不可信的第三方恶意代码，仍建议配合容器或独立虚拟机运行。
-
----
-
-## 📂 项目目录结构
-
-```text
-autonomous-code-agent/
-├── README.md
-├── LICENSE
-├── requirements.txt
-├── run_demo.py                     # CLI 单任务/自定义工作区与端点探测入口
-├── run_relay.py                    # 24h 夜间硅基接力队列 CLI 与交接报告生成入口
-├── run_web.py                      # 多线程 HTTP + SSE 实时仪表盘服务
-├── web/
-│   └── index.html                  # 单任务 & 24h 接力双模实时工作台前端
-├── src/
-│   ├── __init__.py
-│   ├── sandbox.py                  # PathGuard / IntegrityMonitor / ASTPolicy / IsolatedTestRunner
-│   ├── tools.py                    # ToolBox 与 ReAct 多文件工具注册分发
-│   ├── checkpoint.py               # 文件快照回滚与 Git 接力分支管理
-│   ├── llm_backend.py              # OpenAI 兼容双协议客户端、硬件预设与 Mock 模拟器
-│   ├── prompts.py                  # TDD 与 ReAct 提示词模板
-│   ├── agent.py                    # CodeIterationAgent (Patch/ReAct、防退化回滚、防停滞、Holdout)
-│   ├── relay.py                    # RelayOrchestrator (跨任务回归校验、JSONL 账本、交接报告)
-│   └── benchmarks_catalog.py       # 共享基准算例目录与隔离演练初始化
-├── benchmarks/
-│   ├── night_relay_plan.json       # 4 任务夜间接力示例编排计划
-│   ├── case1_spmm_boundary/
-│   ├── case2_vector_scale/
-│   ├── case3_kv_cache_broadcast/
-│   └── case4_relay_scheduler/      # 多文件 ReAct + 隐藏 Holdout 验收算例
-└── tests/
-    ├── test_sandbox.py             # 路径逃逸、软链、密钥脱敏、超时强杀与 SHA-256 篡改测试
-    ├── test_tools.py               # 工具箱与 ReAct 补丁 AST 预检测试
-    ├── test_agent_loop.py          # 回滚、停滞熔断、Holdout、原生/文本双协议 HTTP 服务测试
-    ├── test_relay.py               # 夜间接力队列、跨任务回归回滚与报告生成测试
-    ├── test_benchmarks_rigor.py    # 验证缺陷起点必挂、round(...,6) 必挂、严格补丁必过
-    └── test_web_server.py          # Web API 与 SSE 实时推流集成测试
-```
+1. **严格区分 Offline Smoke Mock、Fault-Sim 与 Live LLM**：
+   - `DeterministicMockLLM` 仅对内置 Case 1–5 返回固定补丁以冒烟验证沙箱与调度流水线，在未知题库 `U1–U4` 上得分为 **0/4 (`MOCK_UNSUPPORTED_TASK`)**；
+   - `run_eval.py --mode fault-sim` 验证的是本地真实 HTTP 协议栈在注入语法错误、HTTP 400 降级、上下文膨胀与 C++ 头文件报错下的多轮自愈闭环；
+   - 评估具体大模型的真实代码生成泛化率，请务必使用 `--mode live` 连接实际模型端点。
+2. **双层沙箱适用范围**：
+   - 默认 `--sandbox process` 使用用户态只读临时副本与 POSIX `rlimit`，开箱即用；执行高风险不可信代码时请显式开启 `--sandbox docker` 启用 `--network none --read-only --cap-drop ALL` 容器级隔离（C++ 编译门禁若需在容器内运行，需指定包含 `g++`/`clang++` 的镜像）。
 
 ## 📜 许可证
 

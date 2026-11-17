@@ -23,7 +23,6 @@ def gqa_kv_broadcast_kernel(kv_tensor, num_query_heads=12, num_kv_heads=2):
         batch_heads = []
         for kv_head in batch_item:
             for _ in range(group_size):
-                # Copy inner [seq_len][head_dim] slices so downstream mutations do not alias across heads
                 batch_heads.append([list(seq_vec) for seq_vec in kv_head])
         broadcasted.append(batch_heads)
 

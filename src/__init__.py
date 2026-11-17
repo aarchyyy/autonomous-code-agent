@@ -1,8 +1,9 @@
 """
-Autonomous Code Synthesis & Verification Agent (ACS-Agent)
+Autonomous Code Synthesis & Verification Agent (ACS-Agent) — Complete Edition
 """
 from .agent import CodeIterationAgent
 from .checkpoint import FileSnapshotManager, GitRelayManager
+from .context import ContextWindowManager, estimate_conversation_tokens
 from .llm_backend import (
     HARDWARE_PRESETS,
     AgentTurn,
@@ -19,9 +20,12 @@ from .sandbox import (
     IntegrityMonitor,
     IntegrityViolationError,
     IsolatedTestRunner,
+    NativeSyntaxInspector,
     PathGuard,
     PathSecurityError,
     SandboxPolicy,
+    detect_cpp_compiler,
+    detect_docker_runtime,
 )
 from .tools import TOOL_DEFINITIONS, ToolBox
 
@@ -29,6 +33,8 @@ __all__ = [
     "CodeIterationAgent",
     "ToolBox",
     "TOOL_DEFINITIONS",
+    "ContextWindowManager",
+    "estimate_conversation_tokens",
     "BaseLLM",
     "LiveLLMClient",
     "DeterministicMockLLM",
@@ -47,6 +53,9 @@ __all__ = [
     "IntegrityMonitor",
     "IntegrityViolationError",
     "ASTPolicyInspector",
+    "NativeSyntaxInspector",
     "ASTPolicyError",
     "IsolatedTestRunner",
+    "detect_cpp_compiler",
+    "detect_docker_runtime",
 ]

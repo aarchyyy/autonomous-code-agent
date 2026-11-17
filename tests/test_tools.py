@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 
+from src.sandbox import detect_cpp_compiler
 from src.tools import ToolBox
 
 
@@ -56,8 +57,32 @@ class TestToolBox(unittest.TestCase):
         )
         self.assertFalse(bad_patch["ok"])
         self.assertIn("ASTPolicyError", bad_patch["error"])
-        # File remains intact after AST rejection
         self.assertIn("return x * 2", self.tools.read_source("pkg/mod.py"))
+
+    def test_whitespace_normalized_patch_fallback(self):
+        # Disk file has trailing spaces on line 1
+        self.tools.write_source("ws_mod.py", "def greet():   \n    return 'hi'\n")
+        res = self.tools.dispatch_tool(
+            "patch_file",
+            {
+                "filepath": "ws_mod.py",
+                "old_text": "def greet():\n    return 'hi'",
+                "new_text": "def greet():\n    return 'hello'",
+            },
+        )
+        self.assertTrue(res["ok"], msg=res)
+        self.assertIn("return 'hello'", self.tools.read_source("ws_mod.py"))
+
+    def test_cpp_header_pre_flight_guard_rejects_broken_write(self):
+        if not detect_cpp_compiler():
+            self.skipTest("No C++ compiler found")
+        self.tools.write_source("kern.hpp", "#pragma once\ninline int ok_fn() { return 7; }\n")
+        bad = self.tools.dispatch_tool(
+            "write_file",
+            {"filepath": "kern.hpp", "content": "#pragma once\ninline int broken( { return 0; }\n"},
+        )
+        self.assertFalse(bad["ok"])
+        self.assertIn("ok_fn", self.tools.read_source("kern.hpp"))
 
 
 if __name__ == "__main__":

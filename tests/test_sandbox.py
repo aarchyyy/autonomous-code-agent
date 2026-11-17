@@ -6,7 +6,12 @@ from src.sandbox import (
     ASTPolicyInspector,
     IntegrityMonitor,
     IntegrityViolationError,
+    IsolatedTestRunner,
+    NativeSyntaxInspector,
     PathSecurityError,
+    SandboxPolicy,
+    detect_cpp_compiler,
+    detect_docker_runtime,
 )
 from src.tools import ToolBox
 
@@ -81,6 +86,25 @@ class TestSandboxSecurity(unittest.TestCase):
         self.assertFalse(ok_eval)
         self.assertIn("forbidden builtin call", msg_eval)
 
+    def test_strict_ast_fine_grained_allowlist(self):
+        code = "import ctypes\nimport pathlib\nx = 1\n"
+        ok_blocked, _ = ASTPolicyInspector.inspect(code, strict=True)
+        self.assertFalse(ok_blocked)
+
+        ok_allowed, _ = ASTPolicyInspector.inspect(
+            code,
+            strict=True,
+            allowed_imports={"ctypes", "pathlib"},
+        )
+        self.assertTrue(ok_allowed)
+
+        ok_still_blocks_subproc, _ = ASTPolicyInspector.inspect(
+            "import ctypes, subprocess\n",
+            strict=True,
+            allowed_imports={"ctypes"},
+        )
+        self.assertFalse(ok_still_blocks_subproc)
+
     def test_ephemeral_sandbox_scrubs_secrets_and_isolates_cwd_writes(self):
         old_key = os.environ.get("OPENAI_API_KEY")
         os.environ["OPENAI_API_KEY"] = "sk-super-secret-do-not-leak"
@@ -134,6 +158,91 @@ class TestSandboxSecurity(unittest.TestCase):
         self.assertFalse(res["passed"])
         self.assertEqual(res["summary"], "WATCHDOG_TIMEOUT")
         self.assertEqual(res["exit_code"], 124)
+
+    def test_cpp17_syntax_inspector_and_native_compile_gate(self):
+        if not detect_cpp_compiler():
+            self.skipTest("No C++ compiler available on PATH")
+
+        ok_good, _ = NativeSyntaxInspector.inspect_cpp(
+            "op.hpp",
+            "#pragma once\ninline int sq(int x) { return x * x; }\n",
+            workspace_root=self.ws,
+        )
+        self.assertTrue(ok_good)
+
+        ok_bad, err_bad = NativeSyntaxInspector.inspect_cpp(
+            "op.hpp",
+            "#pragma once\ninline int sq(int x { return x; }\n",
+            workspace_root=self.ws,
+        )
+        self.assertFalse(ok_bad)
+        self.assertIn("Error", err_bad)
+
+        cpp_ws = os.path.join(self.ws, "cpp_gate_ws")
+        os.makedirs(cpp_ws)
+        with open(os.path.join(cpp_ws, "op.hpp"), "w", encoding="utf-8") as f:
+            f.write("#pragma once\ninline int sq(int x) { return x * x; }\n")
+        with open(os.path.join(cpp_ws, "test_op.cpp"), "w", encoding="utf-8") as f:
+            f.write(
+                '#include "op.hpp"\n#include <iostream>\n'
+                "int main() {\n"
+                "    bool ok = (sq(4) == 16);\n"
+                '    std::cerr << "[SUMMARY] tests_run=1 passed=" << (ok ? 1 : 0) << " failed=" << (ok ? 0 : 1) << "\\n";\n'
+                "    return ok ? 0 : 1;\n"
+                "}\n"
+            )
+        tb = ToolBox(workspace_root=cpp_ws, writable_files=["op.hpp"], protected_files=["test_op.cpp"])
+        gate = tb.run_tdd_gate("test_op.cpp")
+        self.assertTrue(gate["passed"], msg=gate["output"])
+        self.assertEqual(gate["passed_count"], 1)
+
+    def test_docker_container_isolated_sandbox(self):
+        runner = IsolatedTestRunner(
+            SandboxPolicy(
+                workspace_root=self.ws,
+                protected_files={"test_target.py"},
+                sandbox_backend="docker",
+                docker_image="python:3.12-alpine",
+            )
+        )
+        cmd = runner._build_docker_command(
+            container_name="acs_sbx_unit",
+            real_exec_ws=self.ws,
+            rel_test_dir="",
+            rel_staged_test="test_target.py",
+            timeout=10,
+            runner_kind="unittest",
+        )
+        self.assertIn("--network", cmd)
+        self.assertIn("none", cmd)
+        self.assertIn("--read-only", cmd)
+        self.assertIn("--cap-drop", cmd)
+        self.assertIn("ALL", cmd)
+        self.assertIn("65534:65534", cmd)
+
+        dkr = detect_docker_runtime("python:3.12-alpine")
+        if dkr.get("available"):
+            with open(os.path.join(self.ws, "test_dkr_ro.py"), "w", encoding="utf-8") as f:
+                f.write(
+                    "import os, unittest\n"
+                    "from target import add\n"
+                    "class TDkr(unittest.TestCase):\n"
+                    "    def test_readonly_mount_and_math(self):\n"
+                    "        self.assertEqual(add(20, 22), 42)\n"
+                    "        self.assertNotIn('OPENAI_API_KEY', os.environ)\n"
+                    "        with self.assertRaises(OSError):\n"
+                    "            open('/workspace/illegal_write.txt', 'w').write('x')\n"
+                )
+            tb_dkr = ToolBox(
+                workspace_root=self.ws,
+                writable_files=["target.py"],
+                protected_files=["test_dkr_ro.py"],
+                sandbox_backend="docker",
+                docker_image="python:3.12-alpine",
+            )
+            res = tb_dkr.run_tdd_gate("test_dkr_ro.py", timeout=15)
+            self.assertTrue(res["passed"], msg=res["output"])
+            self.assertIn("docker_isolated", res["sandbox_mode"])
 
 
 if __name__ == "__main__":

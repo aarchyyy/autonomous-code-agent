@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ACS-Agent · 24h 碳硅接力自主代码工程工作台</title>
+  <title>ACS-Agent · 24h 碳硅接力自主代码工程工作台 (Complete Edition)</title>
   <style>
     :root {
       --bg: #070b14;
@@ -63,7 +63,6 @@
     .pill-dot.live { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
     .pill-dot.err { background: var(--accent-red); }
 
-    /* Tabs */
     .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
     .tab-btn {
       background: rgba(255, 255, 255, 0.05); color: var(--text-muted);
@@ -75,7 +74,6 @@
       color: #fff; border-color: rgba(56, 189, 248, 0.5);
     }
 
-    /* Config / Controls */
     .panel {
       background: var(--card-bg); border: 1px solid var(--card-border);
       border-radius: 14px; padding: 14px 18px; margin-bottom: 16px;
@@ -87,7 +85,7 @@
     }
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
       gap: 10px;
       align-items: end;
     }
@@ -115,13 +113,8 @@
     .btn-secondary { background: rgba(255, 255, 255, 0.08); color: var(--text-main); border: 1px solid var(--card-border); }
     .probe-msg { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 
-    /* Grids */
-    .dashboard-grid {
-      display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 16px;
-    }
-    .relay-grid {
-      display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px;
-    }
+    .dashboard-grid { display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 16px; }
+    .relay-grid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 16px; }
     @media (max-width: 1120px) {
       .dashboard-grid, .relay-grid { grid-template-columns: 1fr; }
     }
@@ -189,7 +182,7 @@
     .summary-card {
       margin-top: 16px; background: var(--card-bg); border: 1px solid var(--card-border);
       border-radius: 14px; padding: 14px 20px;
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
       gap: 12px; text-align: center;
     }
     .metric-val { font-size: 20px; font-weight: 800; color: var(--accent-green); }
@@ -203,21 +196,20 @@
       <div class="brand">
         <div class="brand-icon">ACS</div>
         <div>
-          <h1>Autonomous Code Synthesis &amp; Verification Agent (ACS-Agent)</h1>
-          <div class="subtitle">24h 人机接力 / 碳硅协同自主研发与可信验证工作台（昆仑 GPT-Factory One · AMD Ryzen AI MAX+ 395 适配）</div>
+          <h1>Autonomous Code Synthesis &amp; Verification Agent (Complete Edition)</h1>
+          <div class="subtitle">24h DAG 碳硅接力 · Python/C++17 双引擎编译门禁 · Rootless Docker 容器沙箱 · 断点续跑工作台</div>
         </div>
       </div>
       <div class="status-pills">
         <div class="pill"><div class="pill-dot" id="backendDot"></div> <span id="backendPillText">后端: 自动探测</span></div>
-        <div class="pill">沙箱: Ephemeral R/O + python -I + rlimit</div>
+        <div class="pill" id="runtimePill">沙箱: Ephemeral R/O + Docker/C++17</div>
         <div class="pill">门禁校验: <span id="integrityText">SHA-256 待验证</span></div>
       </div>
     </header>
 
-    <!-- Hardware & Backend Configuration -->
     <div class="panel">
       <div class="panel-title">
-        <span>算力后端与模型端点配置 (LLM Backend &amp; Local Token Factory)</span>
+        <span>算力后端、模型端点与沙箱隔离层级 (LLM Gateway &amp; Isolation Tier)</span>
         <span class="probe-msg" id="probeStatus">未探测端点</span>
       </div>
       <div class="form-grid">
@@ -242,6 +234,14 @@
           </select>
         </div>
         <div class="field">
+          <label for="sandboxSelect">沙箱隔离引擎</label>
+          <select id="sandboxSelect">
+            <option value="process" selected>Process R/O + python -I + rlimit</option>
+            <option value="docker">Docker Container (--network none, ro, cap-drop=ALL)</option>
+            <option value="auto">Auto (Docker 可用则优先容器隔离)</option>
+          </select>
+        </div>
+        <div class="field">
           <label for="baseUrlInput">OpenAI 兼容 Base URL</label>
           <input id="baseUrlInput" type="text" placeholder="http://127.0.0.1:8000/v1">
         </div>
@@ -259,23 +259,22 @@
       </div>
     </div>
 
-    <!-- Mode Switch Tabs -->
     <div class="tabs">
-      <button class="tab-btn active" id="tabSingle">单任务 TDD / ReAct 自修复闭环</button>
-      <button class="tab-btn" id="tabRelay">24h 夜间硅基接力队列 (Night Relay + 晨间交接简报)</button>
+      <button class="tab-btn active" id="tabSingle">单任务 TDD / ReAct 自修复闭环 (Python + C++17)</button>
+      <button class="tab-btn" id="tabRelay">24h DAG 夜间硅基接力队列 (断点续跑 + 交接包)</button>
     </div>
 
-    <!-- Single Task Workbench -->
     <section id="sectionSingle">
       <div class="panel">
         <div class="form-grid">
           <div class="field">
-            <label for="caseSelect">选择基准算例或自定义工作区</label>
+            <label for="caseSelect">选择基准算例 (Cases 1–5) 或自定义工作区</label>
             <select id="caseSelect">
               <option value="case1">Case 1: SpMM CSR 算子 (负下标防线 + math.fsum)</option>
               <option value="case2" selected>Case 2: 向量尺度算子 (IEEE-754 float32 0-ULP + 非有限值校验)</option>
               <option value="case3">Case 3: GQA KV-Cache 广播 (形状校验 + 独立缓冲隔离)</option>
-              <option value="case4">Case 4: 多文件 Token 调度器 (ReAct 多工具 + 隐藏 Holdout 门禁)</option>
+              <option value="case4">Case 4: 多文件 Token 调度器 (ReAct 多工具 + 隐藏 Holdout)</option>
+              <option value="case5">Case 5: C++17 Tiled CSR SpMV 算子 (clang++ 编译门禁 + 隐藏 Holdout)</option>
               <option value="custom">自定义本地工程工作区 (Custom Workspace)</option>
             </select>
           </div>
@@ -300,11 +299,11 @@
           </div>
           <div class="field">
             <label for="customWritable">授权可写文件 (逗号分隔)</label>
-            <input id="customWritable" type="text" placeholder="precision.py, scheduler.py">
+            <input id="customWritable" type="text" placeholder="precision.py, scheduler.py 或 kernel.hpp">
           </div>
           <div class="field">
-            <label for="customTest">不可变测试文件</label>
-            <input id="customTest" type="text" placeholder="test_scheduler.py">
+            <label for="customTest">不可变测试文件 (.py 或 .cpp)</label>
+            <input id="customTest" type="text" placeholder="test_scheduler.py 或 test_kernel.cpp">
           </div>
           <div class="field">
             <label for="customHoldout">可选隐藏 Holdout 测试</label>
@@ -328,8 +327,8 @@
       <div class="dashboard-grid">
         <div class="card">
           <div class="card-header">
-            <span class="card-title">源码 Diff 与 AST 安全审计</span>
-            <span class="card-badge" id="diffBadge">AST Guard 就绪</span>
+            <span class="card-title">源码 Diff 与 AST/C++17 预检审计</span>
+            <span class="card-badge" id="diffBadge">Pre-flight Guard 就绪</span>
           </div>
           <div class="card-body">
             <div class="diff-view" id="diffContainer">点击「启动实时流式迭代闭环」观察源码补丁 Diff...</div>
@@ -339,10 +338,10 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">隔离沙箱 TDD 门禁 &amp; Holdout</span>
-            <span class="card-badge" id="testBadge">Ephemeral R/O Sandbox</span>
+            <span class="card-badge" id="testBadge">Layered Sandbox</span>
           </div>
           <div class="card-body">
-            <div class="terminal-view" id="terminalContainer">[Sandbox Ready] 测试将在只读隔离临时副本与脱敏环境变量中执行...</div>
+            <div class="terminal-view" id="terminalContainer">[Sandbox Ready] 测试将在只读隔离临时副本或无网 Docker 容器中执行...</div>
           </div>
         </div>
 
@@ -352,46 +351,50 @@
             <span class="card-badge" id="iterBadge">0 轮</span>
           </div>
           <div class="card-body" id="cognitionContainer">
-            <div style="color: var(--text-muted); padding: 8px;">等待执行。ReAct 轨迹、回滚告警与防停滞状态将在此实时呈现...</div>
+            <div style="color: var(--text-muted); padding: 8px;">等待执行。ReAct 轨迹、滑窗压缩、回滚告警与防停滞状态将在此实时呈现...</div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 24h Night Relay Workbench -->
     <section id="sectionRelay" class="hidden">
       <div class="panel">
         <div class="form-grid">
           <div class="field">
-            <label for="relayPlanPath">接力任务队列计划 (relay_plan.json)</label>
-            <input id="relayPlanPath" type="text" placeholder="留空则使用内置 benchmarks/night_relay_plan.json 隔离演练">
+            <label for="relayPlanPath">DAG 任务编排计划 (relay_plan.json)</label>
+            <input id="relayPlanPath" type="text" placeholder="留空则使用内置 5 任务 DAG 计划 (含 Case 5 C++17)">
           </div>
           <div class="field">
-            <label for="relayWorkspace">目标项目路径 (演练请留空以使用隔离副本)</label>
+            <label for="relayWorkspace">目标项目路径 (演练留空使用隔离副本)</label>
             <input id="relayWorkspace" type="text" placeholder="留空：自动复制到临时目录运行，不污染仓库">
           </div>
           <div class="field">
+            <label for="relayResumeDir">可选断点续跑目录 (--resume)</label>
+            <input id="relayResumeDir" type="text" placeholder="填入中断运行的 .acs_runs/<id> 目录自动校验续跑">
+          </div>
+          <div class="field">
             <label for="relayBudget">夜间时间预算 (秒)</label>
-            <input id="relayBudget" type="number" min="30" max="43200" value="600">
+            <input id="relayBudget" type="number" min="30" max="43200" value="900">
           </div>
         </div>
         <div class="btn-row">
           <div class="btn-group">
-            <button class="btn-relay" id="btnStartRelay">启动 24h 夜间硅基接力队列</button>
+            <button class="btn-relay" id="btnStartRelay">启动 24h DAG 夜间硅基接力队列</button>
             <button class="btn-secondary hidden" id="btnDownloadHandover">下载 HANDOVER_REPORT.md</button>
+            <button class="btn-secondary hidden" id="btnDownloadPatch">下载 night_relay_changes.patch</button>
           </div>
-          <span class="probe-msg" id="relayStatusHint">流程: 19日碳基建门禁 → 夜间硅基接力 + 跨任务回归门禁 → 20日晨间交接简报</span>
+          <span class="probe-msg" id="relayStatusHint">DAG 拓扑调度 + 跨任务全量回归 + 断点重验续跑 + git apply 补丁包</span>
         </div>
       </div>
 
       <div class="relay-grid">
         <div class="card">
           <div class="card-header">
-            <span class="card-title">夜间任务队列与跨任务回归监控</span>
+            <span class="card-title">DAG 任务队列与跨任务回归监控</span>
             <span class="card-badge" id="relayProgressBadge">0 / 0 任务</span>
           </div>
           <div class="card-body" id="relayTasksContainer">
-            <div style="color: var(--text-muted); padding: 8px;">点击「启动 24h 夜间硅基接力队列」，实时观察多任务串行推进、Holdout 验收、跨任务回归检查与自动回滚。</div>
+            <div style="color: var(--text-muted); padding: 8px;">点击「启动 24h DAG 夜间硅基接力队列」，实时观察多任务拓扑推进、C++17 编译门禁、Holdout 验收与跨任务回归。</div>
           </div>
         </div>
 
@@ -401,7 +404,7 @@
             <span class="card-badge" id="handoverBadge">等待生成</span>
           </div>
           <div class="card-body">
-            <div class="report-view" id="handoverContainer">接力完成后，将自动输出包含真实后端标识、SHA-256 门禁完整性、回滚记录与人工复核清单的晨间交接报告。</div>
+            <div class="report-view" id="handoverContainer">接力完成后，将自动输出包含 DAG 依赖状态、SHA-256 门禁完整性、回滚记录与统一 .patch 补丁清单的交接简报。</div>
           </div>
         </div>
       </div>
@@ -425,6 +428,10 @@
         <div class="metric-lbl">LLM 调用 / Tokens</div>
       </div>
       <div>
+        <div class="metric-val" id="metricCompactions" style="color: var(--accent-blue);">0</div>
+        <div class="metric-lbl">上下文滑窗压缩次数</div>
+      </div>
+      <div>
         <div class="metric-val" id="metricRollback" style="color: #cbd5e1;">0</div>
         <div class="metric-lbl">回归自动回滚次数</div>
       </div>
@@ -434,6 +441,7 @@
   <script>
     let PRESETS = {};
     let latestHandoverMarkdown = "";
+    let latestPatchBundle = "";
 
     const escapeHtml = (text) => String(text ?? "")
       .replace(/&/g, "&amp;")
@@ -447,6 +455,10 @@
         const res = await fetch("/api/config");
         const cfg = await res.json();
         PRESETS = cfg.presets || {};
+        const dkrOk = cfg.docker_runtime && cfg.docker_runtime.available;
+        const cppName = cfg.cpp_compiler || "none";
+        document.getElementById("runtimePill").innerText =
+          `运行环境: Docker=${dkrOk ? "就绪" : "离线"} | C++=${cppName}`;
         if (cfg.env_live_configured) {
           document.getElementById("probeStatus").innerText = "检测到环境变量已配置 Live LLM 端点";
         }
@@ -488,6 +500,7 @@
       return {
         mode: document.getElementById("backendMode").value,
         preset: document.getElementById("presetSelect").value,
+        sandbox_backend: document.getElementById("sandboxSelect").value,
         base_url: document.getElementById("baseUrlInput").value.trim(),
         model: document.getElementById("modelInput").value.trim(),
         api_key: document.getElementById("apiKeyInput").value.trim(),
@@ -594,7 +607,7 @@
         es.addEventListener("started", (e) => {
           const info = JSON.parse(e.data);
           updateBackendIndicator(info.backend_mode === "deterministic_mock", info.backend_label, info.model);
-          term.innerHTML += `<span class="log-info">[STARTED] 后端=${escapeHtml(info.backend_label)} | 模型=${escapeHtml(info.model)}</span>\n\n`;
+          term.innerHTML += `<span class="log-info">[STARTED] 后端=${escapeHtml(info.backend_label)} | 沙箱=${escapeHtml(info.sandbox_backend || "process")}</span>\n\n`;
         });
 
         es.addEventListener("step", (e) => {
@@ -627,7 +640,7 @@
                 <div class="thought-header">
                   <span style="color: var(--accent-blue);">第 ${it} 轮 (${escapeHtml(step.status)})</span>
                   <span style="color: ${step.ast_valid === false ? "var(--accent-red)" : "var(--accent-green)"};">
-                    ${step.ast_valid === false ? "AST 拦截" : "AST 通过"}
+                    ${step.ast_valid === false ? "预检拦截" : "预检通过"}
                   </span>
                 </div>
                 <div class="thought-text">${escapeHtml(step.agent_thought || step.message || "")}</div>
@@ -651,6 +664,7 @@
           document.getElementById("metricTime").innerText = `${data.elapsed_seconds}s`;
           const tel = data.telemetry || {};
           document.getElementById("metricTokens").innerText = `${tel.llm_calls || 0} / ${(tel.prompt_tokens || 0) + (tel.completion_tokens || 0)}`;
+          document.getElementById("metricCompactions").innerText = `${tel.context_compactions || 0}`;
           document.getElementById("metricRollback").innerText = `${tel.rollbacks || 0}`;
           document.getElementById("integrityText").innerText = data.integrity_verified ? "SHA-256 完整未篡改" : "完整性异常!";
           document.getElementById("singleRunHint").innerText = `完成: ${data.final_message}`;
@@ -677,18 +691,21 @@
       const listEl = document.getElementById("relayTasksContainer");
       const reportEl = document.getElementById("handoverContainer");
       const dlBtn = document.getElementById("btnDownloadHandover");
+      const dlPatchBtn = document.getElementById("btnDownloadPatch");
 
       btn.disabled = true;
       dlBtn.classList.add("hidden");
-      listEl.innerHTML = `<div style="color: var(--accent-blue); padding: 6px;">正在初始化夜间硅基接力队列...</div>`;
-      reportEl.innerText = "接力运行中，完成后将自动生成晨间交接简报...";
+      dlPatchBtn.classList.add("hidden");
+      listEl.innerHTML = `<div style="color: var(--accent-blue); padding: 6px;">正在校验 DAG 拓扑并初始化夜间硅基接力队列...</div>`;
+      reportEl.innerText = "接力运行中，完成后将自动生成晨间交接简报与统一 .patch 补丁包...";
 
       const payload = {
         ...collectBackendPayload(),
         kind: "relay",
         plan_path: document.getElementById("relayPlanPath").value.trim(),
         workspace: document.getElementById("relayWorkspace").value.trim(),
-        wall_budget: Number(document.getElementById("relayBudget").value || 600),
+        resume_dir: document.getElementById("relayResumeDir").value.trim(),
+        wall_budget: Number(document.getElementById("relayBudget").value || 900),
       };
 
       try {
@@ -713,12 +730,13 @@
         es.addEventListener("relay_event", (e) => {
           const ev = JSON.parse(e.data);
           if (ev.event === "task_started") {
+            const deps = (ev.depends_on && ev.depends_on.length > 0) ? ` [依赖: ${ev.depends_on.join(", ")}]` : "";
             const row = document.createElement("div");
             row.className = "relay-task-row";
             row.id = `relay-task-${ev.task_id}`;
             row.innerHTML = `
               <div class="relay-task-top">
-                <strong>[${ev.index}/${ev.total}] ${escapeHtml(ev.task_id)} · ${escapeHtml(ev.title)}</strong>
+                <strong>[${ev.index}/${ev.total}] ${escapeHtml(ev.task_id)} · ${escapeHtml(ev.title)}${escapeHtml(deps)}</strong>
                 <span class="badge-run" id="status-${escapeHtml(ev.task_id)}">执行中...</span>
               </div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:4px;" id="detail-${escapeHtml(ev.task_id)}">正在执行 TDD 沙箱验证与自修复...</div>
@@ -732,6 +750,20 @@
           } else if (ev.event === "task_finished") {
             doneTasks += 1;
             document.getElementById("relayProgressBadge").innerText = `${doneTasks} / ${totalTasks} 任务`;
+            let row = document.getElementById(`relay-task-${ev.task_id}`);
+            if (!row && ev.task_report) {
+              row = document.createElement("div");
+              row.className = "relay-task-row";
+              row.id = `relay-task-${ev.task_id}`;
+              row.innerHTML = `
+                <div class="relay-task-top">
+                  <strong>${escapeHtml(ev.task_id)} · ${escapeHtml(ev.task_report.title || "")}</strong>
+                  <span id="status-${escapeHtml(ev.task_id)}"></span>
+                </div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:4px;" id="detail-${escapeHtml(ev.task_id)}"></div>
+              `;
+              listEl.appendChild(row);
+            }
             const st = document.getElementById(`status-${ev.task_id}`);
             const det = document.getElementById(`detail-${ev.task_id}`);
             if (st) {
@@ -742,7 +774,7 @@
               const r = ev.task_report;
               const regText = r.regression_result ? (r.regression_result.passed ? ` | 回归=${r.regression_result.checked_tasks}通过` : " | 回归失败已回滚") : "";
               const holdText = r.holdout_result ? (r.holdout_result.passed ? " | Holdout=PASS" : " | Holdout=FAIL") : "";
-              det.innerText = `轮次=${r.iterations} | 耗时=${r.elapsed_seconds}s | 完整性=${r.integrity_verified ? "SHA256 OK" : "ERR"}${holdText}${regText}`;
+              det.innerText = `轮次=${r.iterations || 0} | 耗时=${r.elapsed_seconds || 0}s | 完整性=${r.integrity_verified ? "SHA256 OK" : "ERR"}${holdText}${regText}`;
             }
           }
         });
@@ -750,6 +782,7 @@
         es.addEventListener("done", (e) => {
           const summary = JSON.parse(e.data);
           latestHandoverMarkdown = summary.handover_markdown || "";
+          latestPatchBundle = summary.patch_bundle || "";
           reportEl.innerText = latestHandoverMarkdown;
           document.getElementById("handoverBadge").innerText = summary.all_succeeded ? "全部收敛" : "需人工接续";
           document.getElementById("metricPass").innerText = summary.all_succeeded ? "ALL PASS" : "PARTIAL";
@@ -758,8 +791,10 @@
           document.getElementById("metricTime").innerText = `${summary.elapsed_seconds}s`;
           const tel = summary.telemetry || {};
           document.getElementById("metricTokens").innerText = `${tel.llm_calls || 0} / ${(tel.prompt_tokens || 0) + (tel.completion_tokens || 0)}`;
+          document.getElementById("metricCompactions").innerText = `${tel.context_compactions || 0}`;
           document.getElementById("integrityText").innerText = "SHA-256 门禁已验证";
           if (latestHandoverMarkdown) dlBtn.classList.remove("hidden");
+          if (latestPatchBundle) dlPatchBtn.classList.remove("hidden");
           btn.disabled = false;
           es.close();
         });
@@ -767,7 +802,7 @@
         es.addEventListener("error", (e) => {
           if (e.data) {
             const err = JSON.parse(e.data);
-            reportEl.innerText = `[ERROR] ${err.error}`;
+            reportEl.innerText = `[ERROR] ${escapeHtml(err.error)}`;
           }
           btn.disabled = false;
           es.close();
@@ -784,6 +819,15 @@
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "HANDOVER_REPORT.md";
+      a.click();
+    });
+
+    document.getElementById("btnDownloadPatch").addEventListener("click", () => {
+      if (!latestPatchBundle) return;
+      const blob = new Blob([latestPatchBundle], { type: "text/x-diff;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "night_relay_changes.patch";
       a.click();
     });
   </script>

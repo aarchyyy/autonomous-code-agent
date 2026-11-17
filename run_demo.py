@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 CLI Entrypoint for Autonomous Code Synthesis & Verification Agent (ACS-Agent).
-Supports built-in benchmark verification (Cases 1-4) as well as custom user workspaces.
+Supports built-in benchmark verification (Cases 1-5, Python + C++17) as well as
+custom user workspaces and optional rootless Docker container isolation.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ C_YELLOW = "\033[33m"
 C_MAGENTA = "\033[35m"
 
 
-def print_banner(backend) -> None:
+def print_banner(backend, sandbox_backend: str) -> None:
     is_mock = getattr(backend, "is_mock", False)
     mode_banner = (
         f"{C_YELLOW}OFFLINE PIPELINE SMOKE MOCK (verifies loop/sandbox/rollback — NOT real LLM reasoning){C_RESET}"
@@ -38,9 +39,9 @@ def print_banner(backend) -> None:
     )
     banner = f"""
 {C_CYAN}{C_BOLD}================================================================================
-   AUTONOMOUS CODE SYNTHESIS & VERIFICATION AGENT (ACS-Agent)
-   24h Carbon-Silicon Night-Relay TDD Verification System
-   Sandbox: Ephemeral R/O Copy + PathGuard + SHA-256 Gate + Process-Group Watchdog
+   AUTONOMOUS CODE SYNTHESIS & VERIFICATION AGENT (ACS-Agent · Complete Edition)
+   24h Carbon-Silicon Night-Relay TDD Verification System (Python + C++17/HIP)
+   Sandbox Tier: {sandbox_backend.upper()} (PathGuard + Ephemeral R/O + Docker/rlimit + SHA-256)
 ================================================================================{C_RESET}
   Active Backend : {mode_banner}
 """
@@ -84,10 +85,16 @@ def _on_step_printer(step: dict) -> None:
         if (line.startswith("+") or line.startswith("-")) and not line.startswith(("+++", "---"))
     ]
     if diff_lines:
-        print(f"    {C_CYAN}→ Patch Applied ({len(diff_lines)} changed lines, AST valid={step.get('ast_valid')}){C_RESET}")
+        print(f"    {C_CYAN}→ Patch Applied ({len(diff_lines)} changed lines, pre-flight valid={step.get('ast_valid')}){C_RESET}")
 
 
-def run_benchmark_case(case_id: str, backend, max_iterations: int = 4) -> dict:
+def run_benchmark_case(
+    case_id: str,
+    backend,
+    max_iterations: int = 4,
+    sandbox_backend: str = "process",
+    docker_image: str = "python:3.12-alpine",
+) -> dict:
     case_info = BENCHMARK_CASES[case_id]
     print(f"\n{C_MAGENTA}{C_BOLD}▶ Running {case_info['name']}...{C_RESET}")
     print(f"  Writable    : {', '.join(case_info['writable_files'])}")
@@ -95,6 +102,9 @@ def run_benchmark_case(case_id: str, backend, max_iterations: int = 4) -> dict:
     print(f"  Workspace   : {case_info['workspace']}")
 
     inject_defective_starter(case_id)
+
+    # Native C++ compile case uses process C++17 compiler runner unless custom image supplied
+    effective_sbx = "process" if case_info.get("gate_runner") == "cpp" and sandbox_backend == "docker" and "alpine" in docker_image else sandbox_backend
 
     agent = CodeIterationAgent(
         target_file=case_info["target"],
@@ -107,6 +117,9 @@ def run_benchmark_case(case_id: str, backend, max_iterations: int = 4) -> dict:
         task_spec=case_info.get("spec"),
         agent_mode=case_info.get("agent_mode", "auto"),
         strict_ast=case_info.get("strict_ast", False),
+        sandbox_backend=effective_sbx,
+        docker_image=docker_image,
+        gate_runner=case_info.get("gate_runner", "auto"),
     )
 
     result = agent.run_loop(callback=_on_step_printer)
@@ -140,6 +153,10 @@ def run_custom_task(args, backend) -> dict:
         task_spec=args.spec,
         agent_mode="react" if (args.react or len(writable) > 1) else "auto",
         strict_ast=args.strict_sandbox,
+        allowed_imports=args.allow_import or [],
+        sandbox_backend=args.sandbox,
+        docker_image=args.docker_image,
+        gate_runner=args.gate_runner,
     )
     result = agent.run_loop(callback=_on_step_printer)
     print(f"\n  Status: {result['status']} ({result['elapsed_seconds']}s) | {result['final_message']}")
@@ -148,7 +165,7 @@ def run_custom_task(args, backend) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="ACS-Agent Benchmark & Custom Workspace Runner")
-    parser.add_argument("--case", choices=["case1", "case2", "case3", "case4", "all"], default="all",
+    parser.add_argument("--case", choices=[*BENCHMARK_CASES.keys(), "all"], default="all",
                         help="Built-in benchmark case to run (default: all)")
     parser.add_argument("--mode", choices=["auto", "live", "mock"], default="auto",
                         help="LLM backend mode: auto, live, or deterministic smoke mock")
@@ -159,6 +176,9 @@ def main() -> int:
     parser.add_argument("--model", default=None, help="Model name")
     parser.add_argument("--probe", action="store_true", help="Probe --base-url /models endpoint and exit")
     parser.add_argument("--max-iter", type=int, default=4, help="Max TDD iterations per task")
+    parser.add_argument("--sandbox", choices=["process", "docker", "auto"], default="process",
+                        help="Execution sandbox tier: process (default), docker (--network none), or auto")
+    parser.add_argument("--docker-image", default="python:3.12-alpine", help="Container image for docker sandbox")
     # Custom workspace options
     parser.add_argument("--workspace", default=None, help="Custom project workspace directory")
     parser.add_argument("--target", action="append", default=None, help="Writable target file(s) relative to workspace")
@@ -167,6 +187,8 @@ def main() -> int:
     parser.add_argument("--spec", default=None, help="Optional task specification")
     parser.add_argument("--react", action="store_true", help="Force multi-tool ReAct loop")
     parser.add_argument("--strict-sandbox", action="store_true", help="Enable strict AST import/call guardrail")
+    parser.add_argument("--allow-import", action="append", default=None, help="Allow specific root import under --strict-sandbox")
+    parser.add_argument("--gate-runner", choices=["auto", "unittest", "pytest", "cpp"], default="auto")
     parser.add_argument("--report-json", default=None, help="Write structured run summary JSON to file")
     args = parser.parse_args()
 
@@ -183,7 +205,7 @@ def main() -> int:
         api_key=args.api_key,
         model=args.model,
     )
-    print_banner(backend)
+    print_banner(backend, sandbox_backend=args.sandbox)
 
     start_all = time.time()
     if args.workspace:
@@ -194,7 +216,16 @@ def main() -> int:
         return 0 if custom_res["success"] else 1
 
     case_ids = list(BENCHMARK_CASES.keys()) if args.case == "all" else [args.case]
-    results = {cid: run_benchmark_case(cid, backend, max_iterations=args.max_iter) for cid in case_ids}
+    results = {
+        cid: run_benchmark_case(
+            cid,
+            backend,
+            max_iterations=args.max_iter,
+            sandbox_backend=args.sandbox,
+            docker_image=args.docker_image,
+        )
+        for cid in case_ids
+    }
 
     total_time = round(time.time() - start_all, 2)
     all_passed = all(r["success"] for r in results.values())

@@ -1,15 +1,18 @@
 {
-  "project_name": "24h Carbon-Silicon Night Relay Demo Suite",
-  "max_total_seconds": 600,
-  "max_consecutive_failures": 2,
+  "project_name": "24h Carbon-Silicon Night Relay Complete DAG Suite",
+  "max_total_seconds": 900,
+  "max_total_tokens": 0,
+  "max_consecutive_failures": 3,
   "use_ephemeral_copy": true,
+  "sandbox_backend": "process",
   "tasks": [
     {
       "task_id": "T1_spmm_csr",
-      "title": "Harden CSR SpMM Boundary, Negative Index & Compensated Sum",
+      "title": "Harden Python CSR SpMM Boundary, Negative Index & Compensated Sum",
       "subdir": "benchmarks/case1_spmm_boundary",
       "writable_files": ["kernel.py"],
       "test_file": "test_kernel.py",
+      "depends_on": [],
       "spec": "Validate CSR row_ptr invariants and column bounds (no Python negative wrap-around), skip empty rows, reject non-finite inputs, and use math.fsum.",
       "max_iterations": 4,
       "agent_mode": "patch",
@@ -21,6 +24,7 @@
       "subdir": "benchmarks/case2_vector_scale",
       "writable_files": ["kernel.py"],
       "test_file": "test_kernel.py",
+      "depends_on": [],
       "spec": "Compute exact IEEE-754 float32 (a + b) * scale without decimal round(..., 6) truncation; validate shape equality and finiteness.",
       "max_iterations": 4,
       "agent_mode": "patch",
@@ -32,6 +36,7 @@
       "subdir": "benchmarks/case3_kv_cache_broadcast",
       "writable_files": ["kernel.py"],
       "test_file": "test_kernel.py",
+      "depends_on": [],
       "spec": "Expand [batch, num_kv_heads, seq_len, head_dim] to num_query_heads with independent head buffers and divisibility checks.",
       "max_iterations": 4,
       "agent_mode": "patch",
@@ -39,15 +44,30 @@
     },
     {
       "task_id": "T4_multi_file_scheduler",
-      "title": "Multi-File Token Batch Scheduler & Holdout Verification",
+      "title": "Multi-File Token Batch Scheduler & Hidden Holdout Verification",
       "subdir": "benchmarks/case4_relay_scheduler",
       "writable_files": ["precision.py", "scheduler.py"],
       "test_file": "test_scheduler.py",
       "holdout_test_file": "holdout_test_scheduler.py",
+      "depends_on": ["T1_spmm_csr", "T2_vector_f32"],
       "spec": "Fix weighted_score in precision.py (length/finiteness checks + math.fsum) and dispatch_batch in scheduler.py (descending priority, id tie-break, token capacity, non-mutating output).",
       "max_iterations": 4,
       "agent_mode": "react",
       "strict_ast": true
+    },
+    {
+      "task_id": "T5_cpp_csr_spmv",
+      "title": "Native C++17 Tiled CSR SpMV Compile Gate & FP64 Accumulator",
+      "subdir": "benchmarks/case5_cpp_csr_spmv",
+      "writable_files": ["kernel.hpp"],
+      "test_file": "test_kernel.cpp",
+      "holdout_test_file": "holdout_test_kernel.cpp",
+      "depends_on": ["T1_spmm_csr"],
+      "spec": "Fix C++17 4-way unrolled tiled_csr_spmv_f32 in kernel.hpp: validate CSR bounds and std::isfinite, add scalar tail loop for (nnz % 4 != 0), and accumulate in double before casting to float.",
+      "max_iterations": 4,
+      "agent_mode": "patch",
+      "strict_ast": false,
+      "gate_runner": "cpp"
     }
   ]
 }

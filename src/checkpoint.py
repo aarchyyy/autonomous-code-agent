@@ -1,19 +1,21 @@
 """
-Checkpoint, Best-State Rollback, and Git Relay Branch Manager.
+Checkpoint, Best-State Rollback, Unified Patch Export, and Git Relay Branch Manager.
 
 Ensures autonomous overnight runs never corrupt working code:
 - FileSnapshotManager captures exact contents of authorized writable files before
-  each iteration and tracks the highest-scoring passing state for automatic rollback.
+  each iteration, tracks the highest-scoring passing state for automatic rollback,
+  and exports `git apply`-compatible unified diff patches across checkpoints.
 - GitRelayManager optionally isolates overnight autonomous commits onto a dedicated
-  `acs-relay/<run_id>` branch with structured commit trailers.
+  `acs-relay/<run_id>` branch with structured commit messages.
 """
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import os
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .sandbox import PathGuard
@@ -22,13 +24,13 @@ from .sandbox import PathGuard
 @dataclass
 class CheckpointState:
     label: str
-    score: Tuple[int, int]
+    score: Tuple[int, ...]
     files: Dict[str, Optional[str]]
     state_hash: str
 
 
 class FileSnapshotManager:
-    """In-memory atomic snapshot & rollback manager for authorized workspace files."""
+    """In-memory atomic snapshot, rollback & unified patch exporter for authorized files."""
 
     def __init__(self, workspace_root: str, tracked_files: Iterable[str]):
         self.workspace_root = os.path.realpath(workspace_root)
@@ -69,19 +71,19 @@ class FileSnapshotManager:
         _, state_hash = self.capture_state()
         return state_hash
 
-    def save_checkpoint(self, label: str, score: Tuple[int, int] = (0, 0)) -> CheckpointState:
+    def save_checkpoint(self, label: str, score: Tuple[int, ...] = (0, 0, 0)) -> CheckpointState:
         files, state_hash = self.capture_state()
-        cp = CheckpointState(label=label, score=score, files=files, state_hash=state_hash)
+        cp = CheckpointState(label=label, score=tuple(score), files=files, state_hash=state_hash)
         self.checkpoints[label] = cp
-        if self.best_checkpoint is None or score > self.best_checkpoint.score:
+        if self.best_checkpoint is None or cp.score > self.best_checkpoint.score:
             self.best_checkpoint = cp
         return cp
 
-    def update_best_if_better(self, label: str, score: Tuple[int, int]) -> bool:
+    def update_best_if_better(self, label: str, score: Tuple[int, ...]) -> bool:
         files, state_hash = self.capture_state()
-        cp = CheckpointState(label=label, score=score, files=files, state_hash=state_hash)
+        cp = CheckpointState(label=label, score=tuple(score), files=files, state_hash=state_hash)
         self.checkpoints[label] = cp
-        if self.best_checkpoint is None or score > self.best_checkpoint.score:
+        if self.best_checkpoint is None or cp.score > self.best_checkpoint.score:
             self.best_checkpoint = cp
             return True
         return False
@@ -96,8 +98,10 @@ class FileSnapshotManager:
                     restored.append(f"removed:{rel}")
             else:
                 os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-                with open(abs_path, "w", encoding="utf-8") as fp:
+                tmp_path = f"{abs_path}.acs_restore_{os.getpid()}"
+                with open(tmp_path, "w", encoding="utf-8") as fp:
                     fp.write(content)
+                os.replace(tmp_path, abs_path)
                 restored.append(f"restored:{rel}")
         return restored
 
@@ -110,6 +114,37 @@ class FileSnapshotManager:
         if self.best_checkpoint is None:
             return None
         return self.restore(self.best_checkpoint)
+
+    def export_unified_patch(
+        self,
+        baseline_label: str = "initial",
+        path_prefix: str = "",
+    ) -> str:
+        """Generates a `git apply`-compatible unified diff from `baseline_label` to current disk state."""
+        if baseline_label not in self.checkpoints:
+            return ""
+        base_files = self.checkpoints[baseline_label].files
+        now_files, _ = self.capture_state()
+        chunks: List[str] = []
+        prefix = path_prefix.strip("/").replace(os.sep, "/")
+
+        for rel in sorted(set(base_files.keys()) | set(now_files.keys())):
+            before = base_files.get(rel) or ""
+            after = now_files.get(rel) or ""
+            if before == after:
+                continue
+            display_path = f"{prefix}/{rel}" if prefix else rel
+            diff_lines = list(
+                difflib.unified_diff(
+                    before.splitlines(keepends=True),
+                    after.splitlines(keepends=True),
+                    fromfile=f"a/{display_path}",
+                    tofile=f"b/{display_path}",
+                )
+            )
+            if diff_lines:
+                chunks.append("".join(diff_lines))
+        return "\n".join(chunks)
 
 
 class GitRelayManager:
@@ -175,7 +210,6 @@ class GitRelayManager:
 
         diff_check = self._run_git(["diff", "--cached", "--quiet"])
         if diff_check.returncode == 0:
-            # Nothing staged to commit
             return None
 
         commit_res = self._run_git([

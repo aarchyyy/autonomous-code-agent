@@ -1,27 +1,37 @@
 """
 Prompt Engineering & Context Templates for Autonomous Code Synthesis & Verification Agent.
-Encapsulates TDD gatekeeper rules, multi-turn failure context, anti-stagnation hints,
-and ReAct tool-use instructions.
+Encapsulates TDD gatekeeper rules, multi-language code fencing (Python / C++17 / HIP),
+multi-turn failure context, anti-stagnation hints, and ReAct tool-use instructions.
 """
 
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
+from .sandbox import CPP_EXTENSIONS
 from .tools import format_tools_for_prompt
+
+
+def _fence_lang_for_file(filepath: str) -> str:
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in CPP_EXTENSIONS:
+        return "cpp"
+    return "python"
+
 
 SYSTEM_PROMPT = """You are an Autonomous Code Synthesis & Systems Engineer operating inside a TDD night-relay loop.
 
-Your mission is to inspect failing tests, diagnose root causes, and patch the authorized target implementation until all tests pass without human intervention.
+Your mission is to inspect failing tests or compiler diagnostics, diagnose root causes, and patch the authorized target implementation until all tests pass without human intervention.
 
 OPERATIONAL RULES:
 1. TEST IMMUTABILITY: Test files are immutable ground-truth specifications. NEVER attempt to modify or bypass tests.
-2. ROOT CAUSE DIAGNOSIS: Analyze exact tracebacks, boundary conditions (negative indices, empty inputs, shape mismatches, NaN/Inf, mutability/aliasing), and type invariants.
-3. NUMERICAL PRECISION RIGOR: Never replace true floating-point arithmetic with arbitrary `round(..., 6)` decimal rounding. Use `math.fsum`, IEEE-754 `float32`/`float64` semantics, and `math.isfinite` checks as required.
-4. SYNTAX & POLICY COMPLIANCE: Output valid Python code with no hidden side effects.
+2. ROOT CAUSE DIAGNOSIS: Analyze exact tracebacks/compiler errors, boundary conditions (negative indices, unaligned tail tiles, empty inputs, shape mismatches, NaN/Inf, mutability/aliasing), and type invariants.
+3. NUMERICAL PRECISION RIGOR: Never replace true floating-point arithmetic with arbitrary `round(..., 6)` decimal rounding. Use `math.fsum` / compensated / widened accumulators, IEEE-754 `float32`/`float64` semantics, and finiteness checks as required.
+4. SYNTAX & POLICY COMPLIANCE: Output valid Python or C++17/HIP source code with no hidden side effects.
 5. RESPONSE FORMAT:
    [THOUGHT]: Concise root cause analysis and planned code fix.
-   [CODE]: Complete updated Python implementation for the target file inside ```python ... ``` fences.
+   [CODE]: Complete updated implementation for the target file inside a fenced code block (```python or ```cpp).
 """
 
 REACT_SYSTEM_PROMPT = f"""You are an Autonomous Software Engineer executing an unattended Night-Relay TDD workflow.
@@ -33,7 +43,7 @@ OPERATIONAL RULES:
 2. Inspect the codebase before guessing: read relevant source modules and visible test files to understand cross-file contracts.
 3. Prefer minimal, surgical `patch_file` edits (or `write_file` when rewriting a small module cleanly).
 4. After applying changes, ALWAYS call `run_tests` to verify against the isolated sandbox gate.
-5. Numerical rigor: Do NOT use `round(..., 6)` to mask floating-point behavior; use exact IEEE-754 / `math.fsum` / `math.isfinite` logic.
+5. Numerical rigor: Do NOT use `round(..., 6)` to mask floating-point behavior; use exact IEEE-754 / `math.fsum` / widened accumulation / `isfinite` logic.
 6. If native tool calling is unavailable, invoke exactly one tool per turn using:
    [THOUGHT] your reasoning [/THOUGHT]
    [TOOL_CALL] {{"name": "tool_name", "arguments": {{...}}}} [/TOOL_CALL]
@@ -53,7 +63,8 @@ def build_error_feedback_prompt(
     stagnation_warning: Optional[str] = None,
     previous_attempts_summary: Optional[List[str]] = None,
 ) -> str:
-    """Constructs prompt incorporating current source, traceback, and prior attempt history."""
+    """Constructs prompt incorporating current source, traceback/compiler error, and prior attempt history."""
+    lang = _fence_lang_for_file(target_file)
     sections: List[str] = [
         f"### TDD GATEKEEPER REPORT (Iteration {iteration} of {max_iterations})",
         f"Target File to Patch: `{target_file}`",
@@ -62,8 +73,8 @@ def build_error_feedback_prompt(
     if task_spec:
         sections.append(f"#### Task Specification:\n{task_spec}")
 
-    sections.append(f"#### Current Source Code (`{target_file}`):\n```python\n{current_source}\n```")
-    sections.append(f"#### Test Execution Output & Traceback:\n```text\n{test_output}\n```")
+    sections.append(f"#### Current Source Code (`{target_file}`):\n```{lang}\n{current_source}\n```")
+    sections.append(f"#### Test Execution / Compiler Output:\n```text\n{test_output}\n```")
 
     if previous_attempts_summary:
         hist_text = "\n".join(f"- {item}" for item in previous_attempts_summary[-3:])
@@ -74,9 +85,9 @@ def build_error_feedback_prompt(
 
     sections.append(
         "#### Instructions:\n"
-        f"1. Diagnose why the assertions or boundary checks failed.\n"
+        f"1. Diagnose why the assertions, boundary checks, or compilation failed.\n"
         f"2. Provide [THOUGHT] explaining the root cause and fix.\n"
-        f"3. Provide the complete corrected `{target_file}` inside ```python ... ``` under [CODE]."
+        f"3. Provide the complete corrected `{target_file}` inside ```{lang} ... ``` under [CODE]."
     )
     return "\n\n".join(sections)
 

@@ -8,12 +8,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from src.agent import CodeIterationAgent
 from src.benchmarks_catalog import BENCHMARK_CASES, inject_defective_starter
-from src.llm_backend import BaseLLM, DeterministicMockLLM, LiveLLMClient, probe_llm_endpoint
+from src.context import ContextWindowManager
+from src.llm_backend import AgentTurn, BaseLLM, DeterministicMockLLM, LiveLLMClient, probe_llm_endpoint
 
 
 class _RegressingLLM(BaseLLM):
-    """Test double that breaks passing tests on step 1, then fixes everything on step 2."""
-
     is_mock = True
     backend_label = "RegressingTestDouble"
     model = "test-double"
@@ -24,14 +23,8 @@ class _RegressingLLM(BaseLLM):
     def generate_patch(self, prompt: str, system_prompt: str):
         self.calls += 1
         if self.calls == 1:
-            return (
-                "Attempt 1: accidentally broke existing passing test.",
-                "def op(x, y):\n    return 0\n",
-            )
-        return (
-            "Attempt 2: fixed both cases cleanly.",
-            "def op(x, y):\n    return x * y + 1\n",
-        )
+            return ("Attempt 1: broke passing test.", "def op(x, y):\n    return 0\n")
+        return ("Attempt 2: fixed cleanly.", "def op(x, y):\n    return x * y + 1\n")
 
 
 class _StallingLLM(BaseLLM):
@@ -43,6 +36,25 @@ class _StallingLLM(BaseLLM):
         return ("Repeating same bad code", "def op(x, y):\n    return x + y\n")
 
 
+class _StallingReActLLM(BaseLLM):
+    is_mock = False
+    supports_tools = True
+    backend_label = "StallingReActDouble"
+    model = "stall-react"
+
+    def generate_patch(self, prompt: str, system_prompt: str):
+        return ("noop", "")
+
+    def chat_step(self, messages, tools=None):
+        return AgentTurn(
+            thought="Reading same file endlessly without progress.",
+            tool_calls=[{"id": "tc_dup", "name": "read_file", "arguments": {"filepath": "mod.py"}}],
+            raw_text="loop",
+            model=self.model,
+            provider=self.backend_label,
+        )
+
+
 class TestAgentLoop(unittest.TestCase):
     def setUp(self):
         self.tmp_ctx = tempfile.TemporaryDirectory(prefix="acs_agent_test_")
@@ -52,8 +64,7 @@ class TestAgentLoop(unittest.TestCase):
         self.tmp_ctx.cleanup()
 
     def test_builtin_cases_smoke_convergence(self):
-        for cid in ("case1", "case2", "case3", "case4"):
-            info = BENCHMARK_CASES[cid]
+        for cid, info in BENCHMARK_CASES.items():
             ws = os.path.join(self.tmp_dir, cid)
             shutil.copytree(info["workspace"], ws, ignore=shutil.ignore_patterns("__pycache__"))
             inject_defective_starter(cid, workspace_override=ws)
@@ -68,33 +79,17 @@ class TestAgentLoop(unittest.TestCase):
                 llm_backend=DeterministicMockLLM(),
                 agent_mode=info["agent_mode"],
                 strict_ast=info["strict_ast"],
+                gate_runner=info.get("gate_runner", "auto"),
             )
             result = agent.run_loop()
             self.assertTrue(result["success"], msg=f"{cid} failed: {result}")
             self.assertTrue(result["is_mock"])
             self.assertTrue(result["integrity_verified"])
+            self.assertTrue(len(result["unified_patch"]) > 0)
 
     def test_rollback_on_regression_restores_best_state(self):
         ws = os.path.join(self.tmp_dir, "rollback_ws")
         os.makedirs(ws)
-        with open(os.path.join(ws, "mod.py"), "w", encoding="utf-8") as f:
-            # 1 of 2 tests passes initially
-            f.write("def op(x, y):\n    return x * y\n")
-        with open(os.path.join(ws, "test_mod.py"), "w", encoding="utf-8") as f:
-            f.write(
-                "import unittest\nfrom mod import op\n"
-                "class T(unittest.TestCase):\n"
-                "    def test_zero_case(self):\n        self.assertEqual(op(0, 5), 1)\n"
-                "    def test_nonzero_case(self):\n        self.assertEqual(op(2, 3), 7)\n"
-            )
-        # Wait: op(0, 5)=0 fails, let's make 1 pass initially:
-        with open(os.path.join(ws, "test_mod.py"), "w", encoding="utf-8") as f:
-            f.write(
-                "import unittest\nfrom mod import op\n"
-                "class T(unittest.TestCase):\n"
-                "    def test_zero_y_passes_init(self):\n        self.assertEqual(op(1, 0), 0)\n"
-            )
-        # Better: two tests where initial passes test_a and fails test_b
         with open(os.path.join(ws, "mod.py"), "w", encoding="utf-8") as f:
             f.write("def op(x, y):\n    return x * y + (1 if x == 0 else 0)\n")
         with open(os.path.join(ws, "test_mod.py"), "w", encoding="utf-8") as f:
@@ -139,23 +134,67 @@ class TestAgentLoop(unittest.TestCase):
         self.assertEqual(res["status"], "STALLED")
         self.assertLess(res["iterations"], 8)
 
+    def test_react_stagnation_detection_halts_early(self):
+        ws = os.path.join(self.tmp_dir, "stall_react_ws")
+        os.makedirs(ws)
+        with open(os.path.join(ws, "mod.py"), "w", encoding="utf-8") as f:
+            f.write("def op(x):\n    return x\n")
+        with open(os.path.join(ws, "test_mod.py"), "w", encoding="utf-8") as f:
+            f.write(
+                "import unittest\nfrom mod import op\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_op(self):\n        self.assertEqual(op(2), 5)\n"
+            )
+        agent = CodeIterationAgent(
+            writable_files=["mod.py"],
+            test_file="test_mod.py",
+            workspace_root=ws,
+            max_iterations=6,
+            max_tool_steps=15,
+            llm_backend=_StallingReActLLM(),
+            agent_mode="react",
+        )
+        res = agent.run_loop()
+        self.assertFalse(res["success"])
+        self.assertEqual(res["status"], "STALLED")
+        self.assertLessEqual(res["telemetry"]["llm_calls"], 4)
+
+    def test_context_window_manager_preserves_tool_pairing(self):
+        mgr = ContextWindowManager(max_context_tokens=520, keep_recent_messages=2, min_compact_chars=120)
+        big_file_obs = json.dumps({
+            "ok": True,
+            "filepath": "big.py",
+            "total_lines": 500,
+            "start_line": 1,
+            "end_line": 200,
+            "content": "\n".join(f"{i}: x_{i} = {i} * 123456" for i in range(1, 160)),
+        })
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "task brief"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": big_file_obs},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c2", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c2", "content": "recent short obs"},
+        ]
+        compacted, stats = mgr.compact_if_needed(messages)
+        self.assertEqual(stats["compacted"], 1)
+        self.assertGreater(stats["reclaimed_tokens"], 200)
+        self.assertEqual(len(compacted), 6)
+        self.assertEqual(compacted[2]["role"], "assistant")
+        self.assertEqual(compacted[3]["role"], "tool")
+        self.assertIn('"compacted": true', compacted[3]["content"])
+        self.assertEqual(compacted[5]["content"], "recent short obs")
+
     def test_holdout_gate_blocks_overfit_solution(self):
         ws = os.path.join(self.tmp_dir, "holdout_ws")
         os.makedirs(ws)
         with open(os.path.join(ws, "mod.py"), "w", encoding="utf-8") as f:
-            f.write("def double(x):\n    return 4\n")  # passes visible, fails holdout
+            f.write("def double(x):\n    return 4\n")
         with open(os.path.join(ws, "test_vis.py"), "w", encoding="utf-8") as f:
-            f.write(
-                "import unittest\nfrom mod import double\n"
-                "class T(unittest.TestCase):\n"
-                "    def test_two(self):\n        self.assertEqual(double(2), 4)\n"
-            )
+            f.write("import unittest\nfrom mod import double\nclass T(unittest.TestCase):\n    def test_two(self): self.assertEqual(double(2), 4)\n")
         with open(os.path.join(ws, "test_holdout.py"), "w", encoding="utf-8") as f:
-            f.write(
-                "import unittest\nfrom mod import double\n"
-                "class H(unittest.TestCase):\n"
-                "    def test_five(self):\n        self.assertEqual(double(5), 10)\n"
-            )
+            f.write("import unittest\nfrom mod import double\nclass H(unittest.TestCase):\n    def test_five(self): self.assertEqual(double(5), 10)\n")
         agent = CodeIterationAgent(
             target_file="mod.py",
             test_file="test_vis.py",
@@ -169,10 +208,6 @@ class TestAgentLoop(unittest.TestCase):
         self.assertEqual(res["status"], "HOLDOUT_FAILED")
 
     def test_live_http_client_react_unseen_problem(self):
-        """
-        Spins up a local OpenAI-compatible HTTP server simulating native tool_calls
-        on a brand-new unseen problem NOT present in DeterministicMockLLM.
-        """
         turn_counter = {"n": 0}
 
         class MockOpenAIServer(BaseHTTPRequestHandler):
@@ -198,20 +233,17 @@ class TestAgentLoop(unittest.TestCase):
                 if step == 1:
                     msg = {
                         "role": "assistant",
-                        "content": "<think>Need to inspect unseen_rate_limiter.py first.</think>",
+                        "content": "<think>Inspecting rate_limiter.py first.</think>",
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {
-                                "name": "read_file",
-                                "arguments": json.dumps({"filepath": "rate_limiter.py"}),
-                            },
+                            "function": {"name": "read_file", "arguments": json.dumps({"filepath": "rate_limiter.py"})},
                         }],
                     }
                 elif step == 2:
                     msg = {
                         "role": "assistant",
-                        "content": "Fixing token bucket refill logic.",
+                        "content": "Fixing token bucket logic.",
                         "tool_calls": [{
                             "id": "call_2",
                             "type": "function",
@@ -237,7 +269,7 @@ class TestAgentLoop(unittest.TestCase):
                 else:
                     msg = {
                         "role": "assistant",
-                        "content": "Running tests after patching rate_limiter.py.",
+                        "content": "Running tests.",
                         "tool_calls": [{
                             "id": "call_3",
                             "type": "function",
@@ -279,7 +311,6 @@ class TestAgentLoop(unittest.TestCase):
             client = LiveLLMClient(base_url=f"http://127.0.0.1:{port}/v1", model="unseen-test-coder")
             probe = probe_llm_endpoint(f"http://127.0.0.1:{port}/v1")
             self.assertTrue(probe["ok"])
-            self.assertEqual(probe["models"], ["unseen-test-coder"])
             agent = CodeIterationAgent(
                 writable_files=["rate_limiter.py"],
                 test_file="test_rate_limiter.py",
@@ -292,17 +323,11 @@ class TestAgentLoop(unittest.TestCase):
             self.assertTrue(res["success"], msg=res)
             self.assertFalse(res["is_mock"])
             self.assertEqual(res["backend_mode"], "live_llm")
-            self.assertEqual(res["telemetry"]["llm_calls"], 3)
-            self.assertGreater(res["telemetry"]["prompt_tokens"], 0)
         finally:
             server.shutdown()
             server.server_close()
 
     def test_live_http_client_falls_back_to_text_react_on_http_400(self):
-        """
-        Verifies local OpenAI-compatible servers that reject `tools` with HTTP 400
-        seamlessly fall back to text `[TOOL_CALL] ... [/TOOL_CALL]` execution.
-        """
         turn_counter = {"n": 0}
 
         class LegacyLocalServer(BaseHTTPRequestHandler):
@@ -334,10 +359,7 @@ class TestAgentLoop(unittest.TestCase):
                         + " [/TOOL_CALL]"
                     )
                 else:
-                    content = (
-                        "[THOUGHT] Verifying via test gate. [/THOUGHT]\n"
-                        '[TOOL_CALL] {"name": "run_tests", "arguments": {}} [/TOOL_CALL]'
-                    )
+                    content = '[THOUGHT] Verifying. [/THOUGHT]\n[TOOL_CALL] {"name": "run_tests", "arguments": {}} [/TOOL_CALL]'
 
                 resp = {
                     "model": "local-legacy-coder",

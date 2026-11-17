@@ -1,5 +1,5 @@
 """
-Shared Catalog of Built-in Benchmark Cases and Defective Starter States.
+Shared Catalog of Built-in Benchmark Cases (Cases 1-5) and Defective Starter States.
 Used by CLI demo (`run_demo.py`), Night Relay CLI (`run_relay.py`), and WebUI (`run_web.py`).
 """
 
@@ -24,6 +24,7 @@ BENCHMARK_CASES: Dict[str, Dict[str, Any]] = {
         "holdout": None,
         "agent_mode": "patch",
         "strict_ast": True,
+        "gate_runner": "unittest",
         "spec": (
             "Implement spmm_csr_operator(row_ptr, col_indices, values, dense_b, num_rows, num_cols). "
             "Validate CSR lengths/monotonicity, reject negative or out-of-range column indices, "
@@ -58,6 +59,7 @@ BENCHMARK_CASES: Dict[str, Dict[str, Any]] = {
         "holdout": None,
         "agent_mode": "patch",
         "strict_ast": True,
+        "gate_runner": "unittest",
         "spec": (
             "Implement vector_scale_kernel(tensor_a, tensor_b, scale=1.0) computing IEEE-754 float32 "
             "(a + b) * scale without round(..., 6) truncation; raise ValueError on length mismatch or NaN/Inf."
@@ -83,6 +85,7 @@ BENCHMARK_CASES: Dict[str, Dict[str, Any]] = {
         "holdout": None,
         "agent_mode": "patch",
         "strict_ast": True,
+        "gate_runner": "unittest",
         "spec": (
             "Implement gqa_kv_broadcast_kernel(kv_tensor, num_query_heads=12, num_kv_heads=2) "
             "expanding [batch, num_kv_heads, seq_len, head_dim] to num_query_heads with independent "
@@ -109,6 +112,7 @@ BENCHMARK_CASES: Dict[str, Dict[str, Any]] = {
         "holdout": "holdout_test_scheduler.py",
         "agent_mode": "react",
         "strict_ast": True,
+        "gate_runner": "unittest",
         "spec": (
             "Fix weighted_score(metrics, weights) in precision.py (length check, finiteness check, "
             "math.fsum compensated summation) and dispatch_batch(tasks, max_tokens) in scheduler.py "
@@ -129,6 +133,58 @@ BENCHMARK_CASES: Dict[str, Dict[str, Any]] = {
                 "    # BUG: Ignores score ordering, tie-breaking, and validation\n"
                 "    return list(tasks)\n"
             ),
+        },
+    },
+    "case5": {
+        "id": "case5",
+        "name": "Case 5: Native C++17 Tiled CSR SpMV Kernel (Compile Gate + Tail & FP64 Accumulator)",
+        "short_name": "Case 5: C++17 Tiled CSR SpMV (Compile Gate)",
+        "subdir": "benchmarks/case5_cpp_csr_spmv",
+        "workspace": os.path.join(BASE_DIR, "benchmarks/case5_cpp_csr_spmv"),
+        "writable_files": ["kernel.hpp"],
+        "target": "kernel.hpp",
+        "test": "test_kernel.cpp",
+        "holdout": "holdout_test_kernel.cpp",
+        "agent_mode": "patch",
+        "strict_ast": False,
+        "gate_runner": "cpp",
+        "spec": (
+            "Implement C++17 tiled_csr_spmv_f32(row_ptr, col_indices, values, x, num_rows, num_cols) in kernel.hpp. "
+            "Validate CSR lengths/monotonicity and non-finite inputs (std::invalid_argument), reject negative or "
+            "out-of-bounds column indices (std::out_of_range), handle unaligned (nnz % 4 != 0) tail elements after "
+            "4-way unrolled tiles, and accumulate in double before casting back to float to prevent cancellation loss."
+        ),
+        "initial_files": {
+            "kernel.hpp": (
+                "#pragma once\n"
+                "#include <vector>\n\n"
+                "// Defective Initial Implementation: 4-way Unrolled CSR SpMV Kernel\n"
+                "inline std::vector<float> tiled_csr_spmv_f32(\n"
+                "    const std::vector<int>& row_ptr,\n"
+                "    const std::vector<int>& col_indices,\n"
+                "    const std::vector<float>& values,\n"
+                "    const std::vector<float>& x,\n"
+                "    int num_rows,\n"
+                "    int num_cols\n"
+                ") {\n"
+                "    (void)num_cols;\n"
+                "    std::vector<float> y(num_rows, 0.0f);\n"
+                "    for (int r = 0; r < num_rows; ++r) {\n"
+                "        int start = row_ptr[r];\n"
+                "        int end = row_ptr[r + 1];\n"
+                "        float acc = 0.0f;\n"
+                "        // BUG: Drops tail elements when (end - start) % 4 != 0, no bounds/NaN checks, float32 cancellation\n"
+                "        for (int k = start; k + 3 < end; k += 4) {\n"
+                "            acc += values[k] * x[col_indices[k]]\n"
+                "                 + values[k + 1] * x[col_indices[k + 1]]\n"
+                "                 + values[k + 2] * x[col_indices[k + 2]]\n"
+                "                 + values[k + 3] * x[col_indices[k + 3]];\n"
+                "        }\n"
+                "        y[r] = acc;\n"
+                "    }\n"
+                "    return y;\n"
+                "}\n"
+            )
         },
     },
 }

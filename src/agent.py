@@ -1,17 +1,18 @@
 """
-Core Agent Module: Orchestrates ReAct reasoning, multi-turn TDD gatekeeper feedback,
-AST/sandbox validation, snapshot checkpointing & regression rollback, anti-stagnation
-detection, and optional hidden holdout verification.
+Core Agent Module: Orchestrates Patch & ReAct reasoning, multi-turn TDD gatekeeper
+feedback, Python AST / Native C++17 pre-flight validation, sliding-window context
+compaction, snapshot checkpointing & regression rollback, full Patch+ReAct anti-stagnation
+circuit breaking, and hidden holdout verification.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from .checkpoint import FileSnapshotManager
+from .context import ContextWindowManager
 from .llm_backend import AgentTurn, BaseLLM, create_llm_backend
 from .prompts import (
     REACT_SYSTEM_PROMPT,
@@ -19,7 +20,7 @@ from .prompts import (
     build_error_feedback_prompt,
     build_react_task_prompt,
 )
-from .sandbox import IntegrityViolationError, PathSecurityError
+from .sandbox import IntegrityViolationError
 from .tools import TOOL_DEFINITIONS, ToolBox
 
 
@@ -45,9 +46,15 @@ class CodeIterationAgent:
         task_spec: Optional[str] = None,
         agent_mode: str = "auto",
         strict_ast: bool = False,
+        allowed_imports: Optional[Iterable[str]] = None,
+        allowed_calls: Optional[Iterable[str]] = None,
         use_ephemeral_copy: bool = True,
+        sandbox_backend: str = "process",
+        docker_image: str = "python:3.12-alpine",
+        gate_runner: str = "auto",
         rollback_on_regression: bool = True,
         max_tool_steps: int = 18,
+        max_context_tokens: int = 8000,
         test_timeout: int = 15,
     ):
         if writable_files is not None:
@@ -64,6 +71,7 @@ class CodeIterationAgent:
         self.workspace_root = workspace_root
         self.max_iterations = max(1, int(max_iterations))
         self.max_tool_steps = max(4, int(max_tool_steps))
+        self.max_context_tokens = max(512, int(max_context_tokens))
         self.task_spec = task_spec
         self.agent_mode = agent_mode
         self.rollback_on_regression = rollback_on_regression
@@ -79,7 +87,12 @@ class CodeIterationAgent:
             protected_files=protected,
             hidden_files=hidden,
             strict_ast=strict_ast,
+            allowed_imports=allowed_imports,
+            allowed_calls=allowed_calls,
             use_ephemeral_copy=use_ephemeral_copy,
+            sandbox_backend=sandbox_backend,
+            docker_image=docker_image,
+            gate_runner=gate_runner,
             default_test_file=test_file,
         )
         self.llm: BaseLLM = llm_backend or create_llm_backend()
@@ -87,13 +100,16 @@ class CodeIterationAgent:
             workspace_root=self.tools.workspace_root,
             tracked_files=self.writable_files,
         )
+        self.context_mgr = ContextWindowManager(max_context_tokens=self.max_context_tokens)
         self.history: List[Dict[str, Any]] = []
-        self._telemetry = {
+        self._telemetry: Dict[str, Any] = {
             "llm_calls": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "llm_latency_ms": 0.0,
             "rollbacks": 0,
+            "context_compactions": 0,
+            "tokens_reclaimed": 0,
         }
 
     def _record_turn_telemetry(self, turn: AgentTurn) -> None:
@@ -124,6 +140,9 @@ class CodeIterationAgent:
     ) -> Dict[str, Any]:
         elapsed = round(time.time() - start_time, 3)
         ok_integrity, violations = self.tools.verify_integrity()
+        self._telemetry["context_compactions"] = self.context_mgr.compactions_performed
+        self._telemetry["tokens_reclaimed"] = self.context_mgr.tokens_reclaimed
+        unified_patch = self.snapshots.export_unified_patch("initial")
         return {
             "success": success,
             "status": status or ("CONVERGED_SUCCESS" if success else "FAILED"),
@@ -135,10 +154,12 @@ class CodeIterationAgent:
             "backend_mode": "deterministic_mock" if getattr(self.llm, "is_mock", False) else "live_llm",
             "backend_label": getattr(self.llm, "backend_label", type(self.llm).__name__),
             "model": getattr(self.llm, "model", "unknown"),
+            "sandbox_backend": self.tools.policy.sandbox_backend,
             "integrity_verified": ok_integrity,
             "integrity_violations": violations,
             "test_file_hashes": self.tools.integrity.snapshot_hashes(),
             "holdout_result": holdout_result,
+            "unified_patch": unified_patch,
             "telemetry": dict(self._telemetry),
         }
 
@@ -187,31 +208,32 @@ class CodeIterationAgent:
         )
         self._record_turn_telemetry(turn)
         thought = turn.thought
-        patched_code = turn.code or turn.raw_text.strip()
+        patched_code = (turn.code if turn.code is not None else turn.raw_text).strip()
 
         step_log["agent_thought"] = thought
         step_log["patched_code"] = patched_code
         step_log["response_sha256"] = turn.response_sha256
         step_log["latency_ms"] = turn.latency_ms
 
-        valid_syntax, syntax_msg = self.tools.validate_syntax(patched_code)
+        if not patched_code or patched_code == current_source.strip():
+            step_log["ast_valid"] = True
+            step_log["status"] = "NO_OP_PATCH"
+            step_log["message"] = "Model produced an empty or identical patch (no changes)."
+            return step_log
+
+        valid_syntax, syntax_msg = self.tools.validate_code(self.target_file, patched_code)
         step_log["ast_valid"] = valid_syntax
         step_log["ast_message"] = syntax_msg
 
         if not valid_syntax:
             step_log["status"] = "SYNTAX_ERROR"
-            step_log["message"] = f"AST rejection: {syntax_msg}"
+            step_log["message"] = f"Pre-flight rejection: {syntax_msg}"
             return step_log
 
-        if patched_code.strip() == current_source.strip():
-            step_log["status"] = "NO_OP_PATCH"
-            step_log["message"] = "Model produced an identical patch (no changes)."
-            return step_log
-
-        diff_str = self.tools.compute_diff(current_source, patched_code, filename=self.target_file)
+        diff_str = self.tools.compute_diff(current_source, patched_code + "\n", filename=self.target_file)
         step_log["diff"] = diff_str
 
-        self.tools.write_source(self.target_file, patched_code)
+        self.tools.write_source(self.target_file, patched_code + "\n")
         step_log["status"] = "PATCH_APPLIED"
         step_log["message"] = "Patch safely applied to target file."
         return step_log
@@ -293,7 +315,6 @@ class CodeIterationAgent:
                     status="CONVERGED_SUCCESS",
                 )
 
-            # Anti-stagnation tracking
             err_sig = test_result.get("error_signature", "")
             state_hash = self.snapshots.current_hash()
             pair = (state_hash, err_sig)
@@ -359,10 +380,43 @@ class CodeIterationAgent:
             )
             self._record_turn_telemetry(turn)
             thought = turn.thought
-            patched_code = turn.code or turn.raw_text.strip()
+            patched_code = (turn.code if turn.code is not None else turn.raw_text).strip()
 
-            valid_syntax, syntax_msg = self.tools.validate_syntax(patched_code)
-            step_log: Dict[str, Any] = {
+            if not patched_code or patched_code == current_source.strip():
+                step_log = {
+                    "iteration": it,
+                    "timestamp": time.time(),
+                    "target_file": self.target_file,
+                    "test_file": self.test_file,
+                    "test_result": test_result,
+                    "sandbox_mode": test_result.get("sandbox_mode"),
+                    "before_code": current_source,
+                    "agent_thought": thought,
+                    "patched_code": patched_code,
+                    "ast_valid": True,
+                    "ast_message": "No changes emitted.",
+                    "response_sha256": turn.response_sha256,
+                    "latency_ms": turn.latency_ms,
+                    "is_mock": bool(getattr(self.llm, "is_mock", False)),
+                    "rolled_back": rolled_back,
+                    "status": "NO_OP_PATCH",
+                    "message": "Patch produced no changes to target file.",
+                }
+                previous_attempts.append(f"Iter {it}: No-op patch (code unchanged).")
+                self.history.append(step_log)
+                self._emit(callback, step_log)
+                if getattr(self.llm, "is_mock", False):
+                    return self._build_final_result(
+                        success=False,
+                        iterations=it,
+                        start_time=start_time,
+                        final_message="Offline smoke mock cannot synthesize code for unseen tasks.",
+                        status="MOCK_UNSUPPORTED_TASK",
+                    )
+                continue
+
+            valid_syntax, syntax_msg = self.tools.validate_code(self.target_file, patched_code)
+            step_log = {
                 "iteration": it,
                 "timestamp": time.time(),
                 "target_file": self.target_file,
@@ -382,15 +436,12 @@ class CodeIterationAgent:
 
             if not valid_syntax:
                 step_log["status"] = "SYNTAX_ERROR"
-                step_log["message"] = f"AST rejection: {syntax_msg}"
-                previous_attempts.append(f"Iter {it}: Rejected by AST guard ({syntax_msg.splitlines()[0]}).")
-            elif patched_code.strip() == current_source.strip():
-                step_log["status"] = "NO_OP_PATCH"
-                step_log["message"] = "Patch produced no changes to target file."
-                previous_attempts.append(f"Iter {it}: No-op patch (code unchanged).")
+                step_log["message"] = f"Pre-flight rejection: {syntax_msg}"
+                previous_attempts.append(f"Iter {it}: Rejected by pre-flight guard ({syntax_msg.splitlines()[0]}).")
             else:
-                diff_str = self.tools.compute_diff(current_source, patched_code, filename=self.target_file)
-                self.tools.write_source(self.target_file, patched_code)
+                final_code = patched_code if patched_code.endswith("\n") else patched_code + "\n"
+                diff_str = self.tools.compute_diff(current_source, final_code, filename=self.target_file)
+                self.tools.write_source(self.target_file, final_code)
                 step_log["diff"] = diff_str
                 step_log["status"] = "PATCH_APPLIED"
                 step_log["message"] = "Patch safely applied to target file."
@@ -401,16 +452,6 @@ class CodeIterationAgent:
             self.history.append(step_log)
             self._emit(callback, step_log)
 
-            if step_log["status"] == "NO_OP_PATCH" and getattr(self.llm, "is_mock", False):
-                return self._build_final_result(
-                    success=False,
-                    iterations=it,
-                    start_time=start_time,
-                    final_message="Offline smoke mock cannot synthesize code for unseen tasks.",
-                    status="MOCK_UNSUPPORTED_TASK",
-                )
-
-        # Post-final gate check
         final_gate = self.tools.run_tdd_gate(self.test_file, timeout=self.test_timeout)
         final_score = _score_test_result(final_gate)
         if final_gate["passed"]:
@@ -424,6 +465,7 @@ class CodeIterationAgent:
                     holdout_result=holdout_res,
                     status="HOLDOUT_FAILED",
                 )
+            self.snapshots.update_best_if_better("final", score=final_score)
             return self._build_final_result(
                 success=True,
                 iterations=self.max_iterations,
@@ -514,14 +556,63 @@ class CodeIterationAgent:
         last_test_result = baseline
         empty_turns = 0
 
+        # ReAct anti-stagnation state tracking (full parity with Patch mode)
+        seen_state_errors: Dict[Tuple[str, str], int] = {
+            (self.snapshots.current_hash(), baseline.get("error_signature", "")): 1
+        }
+        repeated_action_sig: Optional[str] = None
+        repeated_action_count = 0
+
         for step_idx in range(1, self.max_tool_steps + 1):
+            messages, _ = self.context_mgr.compact_if_needed(messages)
             turn = self.llm.chat_step(messages=messages, tools=TOOL_DEFINITIONS)
             self._record_turn_telemetry(turn)
             if turn.thought:
                 pending_thoughts.append(turn.thought)
 
+            if not turn.tool_calls and not turn.code and getattr(self.llm, "is_mock", False):
+                return self._build_final_result(
+                    success=False,
+                    iterations=test_round,
+                    start_time=start_time,
+                    final_message="Offline smoke mock cannot synthesize ReAct actions for unseen tasks.",
+                    status="MOCK_UNSUPPORTED_TASK",
+                )
+
             if turn.tool_calls:
                 empty_turns = 0
+                action_fingerprint = json.dumps(
+                    [{"n": c.get("name"), "a": c.get("arguments")} for c in turn.tool_calls],
+                    sort_keys=True,
+                )
+                if action_fingerprint == repeated_action_sig:
+                    repeated_action_count += 1
+                else:
+                    repeated_action_sig = action_fingerprint
+                    repeated_action_count = 1
+
+                if repeated_action_count >= 4:
+                    stall_entry = {
+                        "iteration": test_round,
+                        "timestamp": time.time(),
+                        "target_file": ", ".join(self.writable_files),
+                        "test_file": self.test_file,
+                        "test_result": last_test_result,
+                        "agent_thought": "\n".join(pending_thoughts),
+                        "tool_trace": list(pending_tools),
+                        "status": "STALLED",
+                        "message": "Halted early: ReAct agent repeated identical tool call 4 times consecutively.",
+                    }
+                    self.history.append(stall_entry)
+                    self._emit(callback, stall_entry)
+                    return self._build_final_result(
+                        success=False,
+                        iterations=test_round,
+                        start_time=start_time,
+                        final_message="ReAct agent stalled repeating identical tool invocation.",
+                        status="STALLED",
+                    )
+
                 use_native = bool(getattr(self.llm, "supports_tools", False) and getattr(self.llm, "enable_native_tools", True))
                 if use_native:
                     messages.append({
@@ -541,6 +632,9 @@ class CodeIterationAgent:
                     })
                 else:
                     messages.append({"role": "assistant", "content": turn.raw_text or turn.thought})
+
+                stagnation_hint_to_inject: Optional[str] = None
+                halted_stalled = False
 
                 for tc in turn.tool_calls:
                     name = tc["name"]
@@ -577,7 +671,7 @@ class CodeIterationAgent:
                                     "diff": "\n".join(pending_diffs),
                                     "tool_trace": list(pending_tools),
                                     "ast_valid": True,
-                                    "ast_message": "Validated per-write AST checks.",
+                                    "ast_message": "Validated per-write pre-flight checks.",
                                     "is_mock": bool(getattr(self.llm, "is_mock", False)),
                                     "rolled_back": False,
                                     "status": "PATCH_APPLIED",
@@ -621,6 +715,22 @@ class CodeIterationAgent:
                                 status="CONVERGED_SUCCESS",
                             )
 
+                        # Track ReAct gate stagnation
+                        pair = (self.snapshots.current_hash(), test_result.get("error_signature", ""))
+                        seen_state_errors[pair] = seen_state_errors.get(pair, 0) + 1
+                        if rolled_back:
+                            stagnation_hint_to_inject = (
+                                "[STAGNATION_ALERT] Your previous edit caused a test regression and was automatically "
+                                "rolled back to the best checkpoint. Re-read the failing assertion carefully."
+                            )
+                        elif seen_state_errors[pair] == 2:
+                            stagnation_hint_to_inject = (
+                                f"[STAGNATION_ALERT] Identical workspace state and failure signature ({pair[1]}) "
+                                "occurred twice. Change your repair strategy instead of repeating the same edit."
+                            )
+                        elif seen_state_errors[pair] >= 3:
+                            halted_stalled = True
+
                         step_entry = {
                             "iteration": test_round,
                             "timestamp": time.time(),
@@ -633,11 +743,11 @@ class CodeIterationAgent:
                             "diff": "\n".join(pending_diffs),
                             "tool_trace": list(pending_tools),
                             "ast_valid": True,
-                            "ast_message": "Validated per-write AST checks.",
+                            "ast_message": "Validated per-write pre-flight checks.",
                             "is_mock": bool(getattr(self.llm, "is_mock", False)),
                             "rolled_back": rolled_back,
-                            "status": "PATCH_APPLIED",
-                            "message": "ReAct cycle completed; tests still failing.",
+                            "status": "STALLED" if halted_stalled else "PATCH_APPLIED",
+                            "message": "Halted early due to repeated identical failure state." if halted_stalled else "ReAct cycle completed; tests still failing.",
                         }
                         self.history.append(step_entry)
                         self._emit(callback, step_entry)
@@ -660,6 +770,18 @@ class CodeIterationAgent:
                             "role": "user",
                             "content": f"[TOOL_RESULT name={name}]\n{formatted}",
                         })
+
+                if halted_stalled:
+                    return self._build_final_result(
+                        success=False,
+                        iterations=test_round - 1,
+                        start_time=start_time,
+                        final_message="ReAct agent stalled on repeated identical failure state; human review advised.",
+                        status="STALLED",
+                    )
+
+                if stagnation_hint_to_inject:
+                    messages.append({"role": "user", "content": stagnation_hint_to_inject})
 
                 if test_round > self.max_iterations:
                     break
@@ -687,7 +809,6 @@ class CodeIterationAgent:
                 if empty_turns >= 2:
                     break
 
-        # Final verification if edits were made after last run_tests
         final_gate = self.tools.run_tdd_gate(self.test_file, timeout=self.test_timeout)
         final_score = _score_test_result(final_gate)
         if final_gate["passed"]:
@@ -701,6 +822,7 @@ class CodeIterationAgent:
                     holdout_result=holdout_res,
                     status="HOLDOUT_FAILED",
                 )
+            self.snapshots.update_best_if_better("final_react", score=final_score)
             return self._build_final_result(
                 success=True,
                 iterations=test_round,
@@ -732,12 +854,16 @@ class CodeIterationAgent:
     def run_loop(self, callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
         """Runs the autonomous iteration loop using either ReAct tool use or patch mode."""
         self.history.clear()
+        self.context_mgr.compactions_performed = 0
+        self.context_mgr.tokens_reclaimed = 0
         self._telemetry = {
             "llm_calls": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "llm_latency_ms": 0.0,
             "rollbacks": 0,
+            "context_compactions": 0,
+            "tokens_reclaimed": 0,
         }
         start_time = time.time()
 

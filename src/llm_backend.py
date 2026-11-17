@@ -95,7 +95,7 @@ class BaseLLM(ABC):
         t0 = time.perf_counter()
         thought, code = self.generate_patch(prompt=prompt, system_prompt=system_prompt)
         dt_ms = round((time.perf_counter() - t0) * 1000.0, 2)
-        raw = f"[THOUGHT]\n{thought}\n\n[CODE]\n```python\n{code}\n```"
+        raw = f"[THOUGHT]\n{thought}\n\n[CODE]\n```\n{code}\n```"
         return AgentTurn(
             thought=thought,
             code=code,
@@ -160,7 +160,6 @@ def probe_llm_endpoint(
 def _parse_text_response(raw_text: str) -> Tuple[str, Optional[str], List[Dict[str, Any]]]:
     text = raw_text or ""
 
-    # Preserve <think> content if no explicit [THOUGHT] block is provided
     think_match = re.search(r"<think>(.*?)</think>", text, re.DOTALL | re.IGNORECASE)
     cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
 
@@ -174,7 +173,6 @@ def _parse_text_response(raw_text: str) -> Tuple[str, Optional[str], List[Dict[s
     elif think_match:
         thought = think_match.group(1).strip()
 
-    # Parse text-based tool calls: [TOOL_CALL] {"name": ..., "arguments": {...}} [/TOOL_CALL]
     tool_calls: List[Dict[str, Any]] = []
     for idx, m in enumerate(
         re.finditer(r"\[TOOL_CALL\]\s*(\{.*?\})\s*(?:\[/TOOL_CALL\]|$)", cleaned_text, re.DOTALL)
@@ -194,14 +192,17 @@ def _parse_text_response(raw_text: str) -> Tuple[str, Optional[str], List[Dict[s
             continue
 
     code: Optional[str] = None
-    code_match = re.search(r"```(?:python|py)?\s*\n(.*?)```", cleaned_text, re.DOTALL)
+    code_match = re.search(
+        r"```(?:python|py|cpp|c\+\+|cxx|cc|c|hpp|h|hip)?\s*\n(.*?)```",
+        cleaned_text,
+        re.DOTALL,
+    )
     if code_match:
         code = code_match.group(1).strip()
     elif not tool_calls and "[CODE]" in cleaned_text:
         code = cleaned_text.split("[CODE]", 1)[1].strip()
 
     if not thought:
-        # Take leading prose before any fenced block or tool tag
         lead = re.split(r"```|\[TOOL_CALL\]|\[CODE\]", cleaned_text, maxsplit=1)[0].strip()
         thought = lead or "Analyzed feedback and prepared next action."
 
@@ -279,7 +280,6 @@ class LiveLLMClient(BaseLLM):
                         err.close()
                     except Exception:
                         pass
-                # Retry only transient server/rate errors
                 if err.code in (429, 502, 503, 504) and attempt < self.max_retries:
                     time.sleep(0.8 * (2 ** attempt))
                     last_err = RuntimeError(f"HTTP {err.code}: {err_body[:400]}")
@@ -313,7 +313,6 @@ class LiveLLMClient(BaseLLM):
         try:
             data = self._post_chat(payload)
         except RuntimeError as err:
-            # Some local OpenAI-compatible servers reject the `tools` parameter with HTTP 400.
             if use_tools and "HTTP 400" in str(err):
                 payload.pop("tools", None)
                 payload.pop("tool_choice", None)
@@ -387,14 +386,15 @@ class DeterministicMockLLM(BaseLLM):
     Deterministic Pipeline Smoke Simulator (NOT real LLM reasoning).
 
     Used strictly for zero-dependency offline verification of the execution loop,
-    AST validation, sandbox isolation, diff generation, checkpointing, and WebUI
-    streaming. For evaluating autonomous reasoning on unseen problems, use LiveLLMClient.
+    AST/C++ validation, sandbox isolation, diff generation, checkpointing, and WebUI
+    streaming. Returns `MOCK_UNSUPPORTED_TASK` on all unseen tasks so zero-leakage
+    properties can be audited automatically.
     """
 
     is_mock = True
     supports_tools = True
     backend_label = "Deterministic Pipeline Smoke Mock (NOT Real LLM)"
-    model = "deterministic-pipeline-mock-v2"
+    model = "deterministic-pipeline-mock-v3"
 
     def __init__(self):
         self._react_step_counter = 0
@@ -407,7 +407,6 @@ class DeterministicMockLLM(BaseLLM):
         joined = "\n".join(str(m.get("content", "")) for m in messages)
         lowered = joined.lower()
 
-        # Multi-file Case 4 smoke sequence using genuine ReAct tool calls
         if tools and ("scheduler.py" in lowered or "dispatch_batch" in lowered or "precision.py" in lowered):
             executed_ids = {
                 m.get("tool_call_id")
@@ -480,8 +479,106 @@ class DeterministicMockLLM(BaseLLM):
     def generate_patch(self, prompt: str, system_prompt: str) -> Tuple[str, str]:
         lower = prompt.lower()
 
+        # Case 5: Native C++17 Tiled CSR SpMV Kernel
+        if "tiled_csr_spmv_f32" in lower or "kernel.hpp" in lower:
+            thought = (
+                "[SMOKE MOCK] Root Cause: C++17 4-way unrolled CSR SpMV omitted scalar tail cleanup for "
+                "(end - start) % 4 != 0, lacked CSR structural/column bounds and std::isfinite checks, "
+                "and accumulated in single-precision float causing catastrophic cancellation. "
+                "Fix Strategy: Validate CSR invariants (std::invalid_argument / std::out_of_range), "
+                "widen unrolled & scalar-tail accumulators to double, and cast once to float."
+            )
+            code = '''#pragma once
+#include <cmath>
+#include <stdexcept>
+#include <vector>
+
+// Patched C++17 Kernel: 4-Way Unrolled CSR SpMV with Tail Cleanup & Widened FP64 Accumulator
+inline std::vector<float> tiled_csr_spmv_f32(
+    const std::vector<int>& row_ptr,
+    const std::vector<int>& col_indices,
+    const std::vector<float>& values,
+    const std::vector<float>& x,
+    int num_rows,
+    int num_cols
+) {
+    if (num_rows < 0 || num_cols < 0) {
+        throw std::invalid_argument("Matrix dimensions must be non-negative");
+    }
+    if (static_cast<int>(row_ptr.size()) != num_rows + 1) {
+        throw std::invalid_argument("row_ptr length must equal num_rows + 1");
+    }
+    if (col_indices.size() != values.size()) {
+        throw std::invalid_argument("col_indices and values size mismatch");
+    }
+    if (static_cast<int>(x.size()) != num_cols) {
+        throw std::invalid_argument("Input vector x length must equal num_cols");
+    }
+    if (!row_ptr.empty() && row_ptr[0] != 0) {
+        throw std::invalid_argument("row_ptr[0] must be 0");
+    }
+    for (int j = 0; j < num_cols; ++j) {
+        if (!std::isfinite(x[j])) {
+            throw std::invalid_argument("Non-finite element in dense vector x");
+        }
+    }
+
+    const int nnz_total = static_cast<int>(values.size());
+    std::vector<float> y(static_cast<std::size_t>(num_rows), 0.0f);
+
+    for (int r = 0; r < num_rows; ++r) {
+        const int start = row_ptr[r];
+        const int end = row_ptr[r + 1];
+        if (start < 0 || end < start || end > nnz_total) {
+            throw std::out_of_range("Invalid CSR row_ptr slice bounds");
+        }
+        if (start == end) {
+            continue;
+        }
+
+        double acc0 = 0.0;
+        double acc1 = 0.0;
+        int k = start;
+        for (; k + 3 < end; k += 4) {
+            for (int u = 0; u < 4; ++u) {
+                const int col = col_indices[k + u];
+                const float v = values[k + u];
+                if (!std::isfinite(v)) {
+                    throw std::invalid_argument("Non-finite sparse value");
+                }
+                if (col < 0 || col >= num_cols) {
+                    throw std::out_of_range("CSR column index out of bounds");
+                }
+            }
+            acc0 += static_cast<double>(values[k]) * static_cast<double>(x[col_indices[k]])
+                  + static_cast<double>(values[k + 1]) * static_cast<double>(x[col_indices[k + 1]]);
+            acc1 += static_cast<double>(values[k + 2]) * static_cast<double>(x[col_indices[k + 2]])
+                  + static_cast<double>(values[k + 3]) * static_cast<double>(x[col_indices[k + 3]]);
+        }
+
+        double tail_acc = 0.0;
+        for (; k < end; ++k) {
+            const int col = col_indices[k];
+            const float v = values[k];
+            if (!std::isfinite(v)) {
+                throw std::invalid_argument("Non-finite sparse value");
+            }
+            if (col < 0 || col >= num_cols) {
+                throw std::out_of_range("CSR column index out of bounds");
+            }
+            tail_acc += static_cast<double>(v) * static_cast<double>(x[col]);
+        }
+
+        y[static_cast<std::size_t>(r)] = static_cast<float>((acc0 + acc1) + tail_acc);
+    }
+
+    return y;
+}
+'''
+            return thought, code
+
         # Case 1: SpMM CSR Boundary Offset, Negative Index Guard & Compensated Summation
-        if "spmm_csr_operator" in lower or "col_indices" in lower:
+        if "spmm_csr_operator" in lower:
             thought = (
                 "[SMOKE MOCK] Root Cause: CSR SpMM did not validate row_ptr monotonicity/length, "
                 "lacked negative/out-of-range column index guards (Python dense_b[-1] silent wrap-around), "
@@ -545,7 +642,7 @@ def spmm_csr_operator(row_ptr, col_indices, values, dense_b, num_rows, num_cols)
 '''
             return thought, code
 
-        # Case 2: IEEE-754 Float32 Vector Scale Kernel (Real float32 semantics, NO round(..., 6))
+        # Case 2: IEEE-754 Float32 Vector Scale Kernel
         if "vector_scale_kernel" in lower:
             thought = (
                 "[SMOKE MOCK] Root Cause: Vector scale kernel omitted scalar `scale` multiplication, "
@@ -617,7 +714,6 @@ def gqa_kv_broadcast_kernel(kv_tensor, num_query_heads=12, num_kv_heads=2):
         batch_heads = []
         for kv_head in batch_item:
             for _ in range(group_size):
-                # Copy inner [seq_len][head_dim] slices so downstream mutations do not alias across heads
                 batch_heads.append([list(seq_vec) for seq_vec in kv_head])
         broadcasted.append(batch_heads)
 
@@ -631,7 +727,7 @@ def gqa_kv_broadcast_kernel(kv_tensor, num_query_heads=12, num_kv_heads=2):
             "configure a Live LLM endpoint (Kunlun GPT-Factory One / Ollama / OpenAI / DeepSeek) "
             "for autonomous reasoning on arbitrary tasks."
         )
-        code = "# Unchanged: Offline smoke mock does not synthesize code for unseen tasks.\n"
+        code = ""
         return thought, code
 
 
@@ -642,16 +738,6 @@ def create_llm_backend(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
 ) -> BaseLLM:
-    """
-    Factory selecting a live OpenAI-compatible client or the offline deterministic smoke mock.
-
-    Args:
-        mode: 'auto' (live if key/endpoint/preset provided, else mock), 'live', or 'mock'.
-        preset: Optional key from HARDWARE_PRESETS (e.g., 'kunlun-gateway', 'ollama', 'vllm').
-        base_url: Explicit OpenAI-compatible base URL.
-        api_key: Optional API key (local endpoints like Ollama/vLLM/GPT-Factory One do not require a real key).
-        model: Model identifier.
-    """
     normalized_mode = (mode or "auto").strip().lower()
     if normalized_mode == "mock":
         return DeterministicMockLLM()
